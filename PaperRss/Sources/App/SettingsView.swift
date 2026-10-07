@@ -226,7 +226,11 @@ struct SettingsView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     // 账号管理与添加弹窗状态
-    @State private var isShowingAddAccountSheet = false
+    @State private var accountSettingsSheet: AccountSettingsSheet?
+    private enum AccountSettingsSheet: String, Identifiable {
+        case addAccount, migrationPreview, localCopy
+        var id: String { rawValue }
+    }
     @State private var accountPendingDeletion: AccountRecord? = nil
     @State private var isShowingDeleteAccountAlert = false
     @State private var deleteAccountError: String? = nil
@@ -538,6 +542,20 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(I18N.shared.localized("我的 Mac (本地账号)"))
                             .font(.system(size: 14, weight: .semibold))
+                        Button(I18N.localized("查看 iCloud 复制预览", englishFallback: "Preview Copy to iCloud")) {
+                            accountSettingsSheet = .migrationPreview
+                        }
+                        .buttonStyle(.plain)
+                        .font(.caption)
+                        .foregroundStyle(settingsAccentColor)
+                        .accessibilityIdentifier("icloud.localMigrationPreview")
+                        Button(I18N.localized("选择并复制到 iCloud…", englishFallback: "Select and Copy to iCloud…")) {
+                            accountSettingsSheet = .localCopy
+                        }
+                        .buttonStyle(.plain)
+                        .font(.caption)
+                        .foregroundStyle(settingsAccentColor)
+                        .accessibilityIdentifier("icloud.localCopy")
                     }
 
                     Spacer()
@@ -559,105 +577,117 @@ struct SettingsView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
 
-                // 远端账号列表（FreshRSS / Miniflux）
+                // 同步账号列表（iCloud / FreshRSS / Miniflux）
                 let remoteAccounts = store.accounts.filter { AccountType(rawValue: $0.type)?.isRemote == true }
                 ForEach(remoteAccounts, id: \.id) { account in
                     Divider().padding(.horizontal, 18).opacity(0.18)
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        // 主行：图标 + 标题与端点 + Toggle
-                        HStack(spacing: 12) {
-                            Image(systemName: account.type == AccountType.miniflux.rawValue ? "flame" : "server.rack")
-                                .font(.system(size: 20))
-                                .foregroundStyle(settingsAccentColor)
-                                .frame(width: 28)
+                    if account.isArchived {
+                        ICloudLocalArchiveSettingsRow(store: store, account: account)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                    } else {
+                        VStack(alignment: .leading, spacing: 10) {
+                            // 主行：图标 + 标题与端点 + Toggle
+                            HStack(spacing: 12) {
+                                Image(systemName: account.type == AccountType.iCloud.rawValue ? "icloud" : account.type == AccountType.miniflux.rawValue ? "flame" : "server.rack")
+                                    .font(.system(size: 20))
+                                    .foregroundStyle(settingsAccentColor)
+                                    .frame(width: 28)
 
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(account.displayName)
-                                    .font(.system(size: 14, weight: .semibold))
-                                if let user = account.username, let url = account.endpointURL {
-                                    Text("\(user) @ \(url)")
-                                        .font(.footnote)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                }
-                            }
-
-                            Spacer()
-
-                            Toggle(
-                                "",
-                                isOn: Binding(
-                                    get: { account.isEnabled },
-                                    set: { newValue in
-                                        Task {
-                                            try? await store.setAccountEnabled(accountID: account.id, isEnabled: newValue)
-                                        }
-                                    }
-                                )
-                            )
-                            .toggleStyle(.switch)
-                            .labelsHidden()
-                        }
-
-                        // 次行：左侧同步状态，右侧操作（立即同步 + 删除）
-                        HStack(spacing: 8) {
-                            if store.accountRefreshProgress[account.id] != nil {
-                                ProgressView()
-                                    .controlSize(.small)
-                                    .tint(settingsAccentColor)
-                            } else if let syncState = store.accountSyncStates[account.id] {
-                                HStack(spacing: 6) {
-                                    if let lastSync = syncState.lastSyncCompletedAt {
-                                        let date = Date(timeIntervalSince1970: lastSync)
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .font(.system(size: 11))
-                                            .foregroundStyle(.green)
-                                        Text(I18N.shared.localizedFormat("上次同步：%@", DateFormatter.localizedString(from: date, dateStyle: .none, timeStyle: .short)))
-                                            .font(.caption2)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(account.displayName)
+                                        .font(.system(size: 14, weight: .semibold))
+                                    if let user = account.username, let url = account.endpointURL {
+                                        Text("\(user) @ \(url)")
+                                            .font(.footnote)
                                             .foregroundStyle(.secondary)
-                                    }
-                                    if let error = syncState.lastError, !error.isEmpty {
-                                        Image(systemName: "exclamationmark.triangle.fill")
-                                            .font(.system(size: 11))
-                                            .foregroundStyle(.orange)
-                                        Text(error)
-                                            .font(.caption2)
-                                            .foregroundStyle(.orange)
                                             .lineLimit(1)
                                     }
                                 }
+
+                                Spacer()
+
+                                Toggle(
+                                    "",
+                                    isOn: Binding(
+                                        get: { account.isEnabled },
+                                        set: { newValue in
+                                            Task {
+                                                try? await store.setAccountEnabled(accountID: account.id, isEnabled: newValue)
+                                            }
+                                        }
+                                    )
+                                )
+                                .toggleStyle(.switch)
+                                .labelsHidden()
+                                .accessibilityLabel(I18N.shared.localizedFormat("启用账号：%@", account.displayName))
                             }
 
-                            Spacer()
-
-                            Button(I18N.shared.localized("立即同步")) {
-                                Task {
-                                    await store.syncAccount(accountID: account.id)
+                            // 次行：左侧同步状态，右侧操作（立即同步 + 删除）
+                            HStack(spacing: 8) {
+                                if store.accountRefreshProgress[account.id] != nil {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .tint(settingsAccentColor)
+                                } else if let syncState = store.accountSyncStates[account.id] {
+                                    HStack(spacing: 6) {
+                                        if let lastSync = syncState.lastSyncCompletedAt {
+                                            let date = Date(timeIntervalSince1970: lastSync)
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .font(.system(size: 11))
+                                                .foregroundStyle(.green)
+                                            Text(I18N.shared.localizedFormat("上次同步：%@", DateFormatter.localizedString(from: date, dateStyle: .none, timeStyle: .short)))
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        if let error = syncState.lastError, !error.isEmpty {
+                                            Image(systemName: "exclamationmark.triangle.fill")
+                                                .font(.system(size: 11))
+                                                .foregroundStyle(.orange)
+                                            Text(error)
+                                                .font(.caption2)
+                                                .foregroundStyle(.orange)
+                                                .lineLimit(1)
+                                        }
+                                    }
                                 }
-                            }
-                            .controlSize(.small)
-                            .disabled(!account.isEnabled || store.accountRefreshProgress[account.id] != nil)
 
-                            Button(role: .destructive) {
-                                accountPendingDeletion = account
-                                isShowingDeleteAccountAlert = true
-                            } label: {
-                                Image(systemName: "trash")
-                                    .foregroundStyle(.red)
+                                Spacer()
+
+                                Button(I18N.shared.localized("立即同步")) {
+                                    Task {
+                                        await store.syncAccount(accountID: account.id)
+                                    }
+                                }
+                                .controlSize(.small)
+                                .disabled(!account.isEnabled || store.accountRefreshProgress[account.id] != nil ||
+                                          (account.type == AccountType.iCloud.rawValue && !store.supportsICloudSync))
+
+                                Button(role: .destructive) {
+                                    accountPendingDeletion = account
+                                    isShowingDeleteAccountAlert = true
+                                } label: {
+                                    Image(systemName: "trash")
+                                        .foregroundStyle(.red)
+                                }
+                                .buttonStyle(.plain)
+                                .padding(.leading, 4)
                             }
-                            .buttonStyle(.plain)
-                            .padding(.leading, 4)
+                            .padding(.leading, 40)
+                            if account.type == AccountType.iCloud.rawValue {
+                                ICloudAccountSettingsRow(store: store, account: account, isActive: isActive)
+                                    .padding(.leading, 40)
+                            }
                         }
-                        .padding(.leading, 40)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
                 }
             }
 
             #if os(macOS)
-            if store.accounts.contains(where: { AccountType(rawValue: $0.type)?.isRemote == true }) {
+            if store.accounts.contains(where: { AccountType(rawValue: $0.type)?.syncsRemoteArticleStates == true }) {
                 Text(I18N.shared.localized(
                     "同步时，macOS 可能请求访问已保存的账号密码。请在系统弹窗中输入 Mac 登录密码，并选择“始终允许”，方便后续自动同步。",
                     "When syncing, macOS may ask to access your saved account passwords. Enter your Mac login password in the system dialog and choose “Always Allow” for future automatic syncing."
@@ -683,7 +713,7 @@ struct SettingsView: View {
 
             HStack {
                 Button {
-                    isShowingAddAccountSheet = true
+                    accountSettingsSheet = .addAccount
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "plus.circle.fill")
@@ -695,8 +725,12 @@ struct SettingsView: View {
             }
             .padding(.top, 4)
         }
-        .sheet(isPresented: $isShowingAddAccountSheet) {
-            AddAccountSheet(store: store, isPresented: $isShowingAddAccountSheet)
+        .sheet(item: $accountSettingsSheet) { sheet in
+            switch sheet {
+            case .addAccount: AddAccountSheet(store: store)
+            case .migrationPreview: ICloudMigrationPreviewView(store: store, sourceAccountID: "local-default")
+            case .localCopy: ICloudLocalCopyView(store: store, sourceAccountID: "local-default")
+            }
         }
         .alert(
             I18N.shared.localized("确认移除账号？"),
@@ -715,10 +749,12 @@ struct SettingsView: View {
             }
             Button(I18N.shared.localized("取消"), role: .cancel) {}
         } message: { account in
-            Text(I18N.shared.localizedFormat(
+            if account.type == AccountType.iCloud.rawValue {
+                Text(I18N.localized("移除此账号将删除它在这台 Mac 上的订阅、文章和同步待办。iCloud 中的资料以及其他账号不受影响。", englishFallback: "Removing this account deletes its feeds, articles and pending sync changes from this Mac. Its iCloud data and other accounts are unaffected."))
+            } else { Text(I18N.shared.localizedFormat(
                 "移除此账号将清除其在 PaperRss 本地同步的数据与凭据，但不会从远端服务器删除或退订您的 Feed。",
                 account.displayName
-            ))
+            )) }
         }
     }
 
@@ -3768,6 +3804,7 @@ struct RefreshStatusView: View {
 }
 
 private enum AccountProviderType: String, CaseIterable, Identifiable {
+    case iCloud
     case freshRSS
     case miniflux
 
@@ -3775,6 +3812,7 @@ private enum AccountProviderType: String, CaseIterable, Identifiable {
 
     var accountType: AccountType {
         switch self {
+        case .iCloud: return .iCloud
         case .freshRSS: return .freshRSS
         case .miniflux: return .miniflux
         }
@@ -3783,6 +3821,7 @@ private enum AccountProviderType: String, CaseIterable, Identifiable {
     @MainActor
     var title: String {
         switch self {
+        case .iCloud: return "iCloud"
         case .freshRSS: return "FreshRSS"
         case .miniflux: return "Miniflux"
         }
@@ -3791,6 +3830,7 @@ private enum AccountProviderType: String, CaseIterable, Identifiable {
     @MainActor
     var subtitle: String {
         switch self {
+        case .iCloud: return I18N.localized("使用系统 iCloud 账号在多台 Mac 之间同步", englishFallback: "Sync across Macs with your system iCloud account")
         case .freshRSS: return I18N.shared.localized("兼容 Google Reader API 的自建 RSS 服务", "Google Reader compatible account")
         case .miniflux: return I18N.shared.localized("自托管极简 RSS 服务（Google Reader 集成）", "Self-hosted minimalist RSS reader (Google Reader integration)")
         }
@@ -3798,6 +3838,7 @@ private enum AccountProviderType: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
+        case .iCloud: return "icloud"
         case .freshRSS: return "server.rack"
         case .miniflux: return "flame"
         }
@@ -3806,7 +3847,7 @@ private enum AccountProviderType: String, CaseIterable, Identifiable {
 
 private struct AddAccountSheet: View {
     @ObservedObject var store: AppStore
-    @Binding var isPresented: Bool
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.paperAppearancePalette) private var paperAppearancePalette
 
     @State private var selectedProvider: AccountProviderType? = nil
@@ -3832,8 +3873,9 @@ private struct AddAccountSheet: View {
             }
         }
         #if os(macOS)
-        .frame(minWidth: 460, maxWidth: 500, minHeight: 360)
+        .frame(minWidth: 460, maxWidth: 500, minHeight: selectedProvider == .iCloud ? 480 : 360)
         #endif
+        .interactiveDismissDisabled(isAdding)
     }
 
     private var headerView: some View {
@@ -3852,6 +3894,7 @@ private struct AddAccountSheet: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Color.accentColor)
+                .disabled(isAdding)
             } else {
                 Text(I18N.shared.localized("添加账号", "Add Account"))
                     .font(.headline)
@@ -3866,10 +3909,11 @@ private struct AddAccountSheet: View {
             }
 
             Button(I18N.shared.localized("取消", "Cancel")) {
-                isPresented = false
+                dismiss()
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
+            .disabled(isAdding)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
@@ -3924,10 +3968,20 @@ private struct AddAccountSheet: View {
         }
     }
 
+    @ViewBuilder
     private func serviceFormView(_ provider: AccountProviderType) -> some View {
+        if provider == .iCloud {
+            ICloudAccountSetupView(store: store, isAdding: $isAdding)
+        } else {
+            readerServiceFormView(provider)
+        }
+    }
+
+    private func readerServiceFormView(_ provider: AccountProviderType) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 switch provider {
+                case .iCloud: EmptyView()
                 case .freshRSS:
                     Text(I18N.shared.localized("输入您的 FreshRSS 服务信息与 API 凭据。密码将安全保存在系统 Keychain 中。"))
                         .font(.footnote)
@@ -4013,7 +4067,7 @@ private struct AddAccountSheet: View {
                                     displayName: freshRSSDisplayName.isEmpty ? nil : freshRSSDisplayName,
                                     waitForInitialSync: false
                                 )
-                                isPresented = false
+                                dismiss()
                                 freshRSSEndpoint = ""
                                 freshRSSUsername = ""
                                 freshRSSPassword = ""
@@ -4041,6 +4095,7 @@ private struct AddAccountSheet: View {
 
     private func serverAddressPlaceholder(for provider: AccountProviderType) -> String {
         switch provider {
+        case .iCloud: return ""
         case .freshRSS:
             return I18N.shared.localized("https://rss.example.com 或 /api/greader.php")
         case .miniflux:
@@ -4050,6 +4105,7 @@ private struct AddAccountSheet: View {
 
     private func usernamePlaceholder(for provider: AccountProviderType) -> String {
         switch provider {
+        case .iCloud: return ""
         case .freshRSS:
             return I18N.shared.localized("FreshRSS 用户名")
         case .miniflux:
@@ -4059,6 +4115,7 @@ private struct AddAccountSheet: View {
 
     private func passwordPlaceholder(for provider: AccountProviderType) -> String {
         switch provider {
+        case .iCloud: return ""
         case .freshRSS:
             return I18N.shared.localized("用户配置中生成的 API 密码")
         case .miniflux:

@@ -37,7 +37,12 @@ public final class CacheRepository: Sendable {
     }
 
     public func deleteAllCaches(in db: Database) throws -> Int {
-        try ArticleCacheRecord.deleteAll(db)
+        try db.execute(sql: """
+            DELETE FROM article_caches WHERE NOT EXISTS (
+                SELECT 1 FROM items i JOIN accounts a ON a.id = i.account_id
+                WHERE i.id = article_caches.item_id AND a.is_archived = 1);
+            """)
+        return db.changesCount
     }
 
     /// article_caches 表内所有行的正文缓存资源占用统计（近似值，按 UTF-8 字节计）。

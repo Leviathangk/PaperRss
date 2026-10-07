@@ -26,6 +26,9 @@ public final class AccountRepository: Sendable {
     }
 
     public func updateAccountEnabled(id: String, isEnabled: Bool, in db: Database) throws {
+        guard try fetchAccount(id: id, in: db)?.isArchived != true else {
+            throw ICloudArchiveRecoveryError.readonlyArchive
+        }
         let now = Date().timeIntervalSince1970
         try db.execute(
             sql: "UPDATE accounts SET is_enabled = ?, updated_at = ? WHERE id = ?;",
@@ -34,7 +37,24 @@ public final class AccountRepository: Sendable {
     }
 
     public func deleteAccount(id: String, in db: Database) throws {
+        try validateAccountRemoval(id: id, in: db)
         _ = try AccountRecord.filter(Column("id") == id).deleteAll(db)
+    }
+
+    private func validateAccountRemoval(id: String, in db: Database) throws {
+        guard try fetchAccount(id: id, in: db)?.isArchived != true else {
+            throw ICloudArchiveRecoveryError.readonlyArchive
+        }
+        guard try fetchAccount(id: id, in: db)?.type == AccountType.iCloud.rawValue,
+              try db.tableExists("icloud_sync_scope"),
+              try db.columns(in: "icloud_sync_scope").contains(where: { $0.name == "cloud_reset_operation" }) else { return }
+        if try Bool.fetchOne(db, sql: """
+            SELECT EXISTS (SELECT 1 FROM icloud_sync_scope WHERE account_id = ? AND cloud_reset_operation IS NOT NULL);
+            """, arguments: [id]) == true {
+            // Keep approval and recovery evidence until its separate review has
+            // decided how to retain/export/remove this account's old cache.
+            throw ICloudCloudResetError.operationInProgress
+        }
     }
 
     public func fetchSyncState(accountID: String, in db: Database) throws -> AccountSyncStateRecord? {
@@ -98,6 +118,10 @@ public final class AccountRepository: Sendable {
         try database.write { db in
             try deleteAccount(id: id, in: db)
         }
+    }
+
+    public func validateAccountRemoval(id: String) async throws {
+        try await database.readAsync { try self.validateAccountRemoval(id: id, in: $0) }
     }
 
     public func fetchSyncState(accountID: String) async throws -> AccountSyncStateRecord? {

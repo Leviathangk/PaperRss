@@ -4,9 +4,15 @@ import Security
 
 public enum CloudSyncError: LocalizedError, Equatable, Sendable {
     case notEntitled
+    case legacyFormatUnsupported
 
     public var errorDescription: String? {
-        I18N.localized("此构建未启用 iCloud 权限：请使用开发者证书签名并在 Xcode 中开启 CloudKit capability。")
+        switch self {
+        case .notEntitled:
+            return I18N.localized("此构建未启用 iCloud 权限：请使用开发者证书签名并在 Xcode 中开启 CloudKit capability。")
+        case .legacyFormatUnsupported:
+            return I18N.localized("旧版 iCloud 同步格式已停用。", englishFallback: "The legacy iCloud sync format is no longer supported.")
+        }
     }
 }
 
@@ -40,7 +46,6 @@ public struct CloudLibrary: Codable, Sendable {
 
 public actor CloudSyncService {
     public static let shared = CloudSyncService()
-    private let recordID = CKRecord.ID(recordName: "paper-rss-library-v1")
 
     /// Whether the running binary actually carries the CloudKit iCloud
     /// entitlement. Calling `CKContainer.default()` without it raises an
@@ -65,38 +70,9 @@ public actor CloudSyncService {
 
     public func synchronize(_ local: CloudLibrary) async throws -> CloudLibrary {
         guard Self.isICloudEntitled else { throw CloudSyncError.notEntitled }
-        let remote = try await download() ?? CloudLibrary(feeds: [], readingStates: [:], artifacts: [])
-        let merged = CloudLibrary.merged(local: local, remote: remote)
-        try await upload(merged)
-        return merged
-    }
-
-    private var database: CKDatabase { CKContainer.default().privateCloudDatabase }
-
-    private func download() async throws -> CloudLibrary? {
-        let record: CKRecord? = try await withCheckedThrowingContinuation { continuation in
-            database.fetch(withRecordID: recordID) { record, error in
-                if let error = error as? CKError, error.code == .unknownItem { continuation.resume(returning: nil) }
-                else if let error { continuation.resume(throwing: error) }
-                else { continuation.resume(returning: record) }
-            }
-        }
-        guard let asset = record?["payload"] as? CKAsset, let url = asset.fileURL else { return nil }
-        return try JSONDecoder.paperRss.decode(CloudLibrary.self, from: Data(contentsOf: url))
-    }
-
-    private func upload(_ library: CloudLibrary) async throws {
-        let data = try JSONEncoder.paperRss.encode(library)
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("paper-rss-cloud-\(UUID().uuidString).json")
-        try data.write(to: url, options: .atomic)
-        defer { try? FileManager.default.removeItem(at: url) }
-        let record = CKRecord(recordType: "PaperRssLibrary", recordID: recordID)
-        record["payload"] = CKAsset(fileURL: url)
-        _ = try await withCheckedThrowingContinuation { continuation in
-            database.save(record) { _, error in
-                if let error { continuation.resume(throwing: error) }
-                else { continuation.resume(returning: ()) }
-            }
-        } as Void
+        // This prototype bundled AI artifacts and local identities into one
+        // asset. Keep the compatibility API inert while callers move to the
+        // account-scoped, whitelisted CKSyncEngine pipeline.
+        throw CloudSyncError.legacyFormatUnsupported
     }
 }

@@ -15,6 +15,7 @@ struct PaperRssApp: App {
     @StateObject private var settingsEditor = AISettingsEditingSession()
     @StateObject private var navigation: AppNavigationModel
     #if os(macOS)
+    @NSApplicationDelegateAdaptor(ICloudApplicationDelegate.self) private var iCloudDelegate
     @FocusedValue(\.paperReaderActive) private var readerActive
     @StateObject private var attention: MacSystemAttentionController
     @StateObject private var updateCoordinator: UpdateCoordinator
@@ -43,6 +44,7 @@ struct PaperRssApp: App {
                         application.applicationIconImage = icon
                     }
                     attention.start(application: application)
+                    iCloudDelegate.connect(store: store)
                     application.activate(ignoringOtherApps: true)
                     updateCoordinator.start()
                 }

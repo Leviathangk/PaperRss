@@ -24,34 +24,8 @@ final class ReaderAccountMigrationTests: XCTestCase {
         let dbURL = tempDir.appendingPathComponent("legacy.sqlite")
         let queue = try DatabaseQueue(path: dbURL.path)
 
-        // 1. 先构建当前完整 Schema，再回退 accounts 表为 v13 之前的 CHECK 约束，模拟升级前数据库。
-        try DatabaseMigrations.migrator.migrate(queue)
-        try queue.writeWithoutTransaction { db in
-            try db.execute(sql: "PRAGMA foreign_keys = OFF")
-            defer { try? db.execute(sql: "PRAGMA foreign_keys = ON") }
-            try db.execute(sql: """
-                CREATE TABLE accounts_legacy (
-                    id              TEXT PRIMARY KEY NOT NULL,
-                    type            TEXT NOT NULL,
-                    display_name    TEXT NOT NULL,
-                    endpoint_url    TEXT,
-                    username        TEXT,
-                    is_enabled      INTEGER NOT NULL DEFAULT 1,
-                    created_at      REAL NOT NULL,
-                    updated_at      REAL NOT NULL,
-
-                    CHECK (type IN ('local', 'freshRSS'))
-                );
-
-                INSERT INTO accounts_legacy SELECT * FROM accounts;
-
-                DROP TABLE accounts;
-
-                ALTER TABLE accounts_legacy RENAME TO accounts;
-
-                CREATE INDEX idx_accounts_type ON accounts(type);
-                """)
-        }
+        // 1. 建立实际 v13 之前的 Schema，避免把将来版本的列／触发器混入旧库。
+        try DatabaseMigrations.migrator.migrate(queue, upTo: "v12-article-preview-images")
 
         // 2. 写入升级前的账号与关联业务数据
         let now = Date().timeIntervalSince1970

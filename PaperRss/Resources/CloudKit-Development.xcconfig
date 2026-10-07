@@ -1,0 +1,6 @@
+// Opt in with xcodebuild -xcconfig; ordinary builds retain their current signing.
+// A matching developer profile / registered container must exist before use.
+// Scope the override to the app product; Swift package resource bundles must
+// not inherit the app's CloudKit entitlement file.
+PAPERRSS_CLOUDKIT_ENTITLEMENTS_PaperRss = $(PROJECT_DIR)/PaperRss/Resources/PaperRss-CloudKit-Development.entitlements
+CODE_SIGN_ENTITLEMENTS = $(PAPERRSS_CLOUDKIT_ENTITLEMENTS_$(PRODUCT_NAME))

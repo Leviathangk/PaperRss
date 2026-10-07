@@ -46,10 +46,10 @@ public actor SyncCoordinator {
         return results
     }
 
-    /// 刷新所有远端账号（排除本地 local-default 账号）。
+    /// 本地 RSS 已由 AppStore 批次抓取；其余账号由各自 Provider 刷新。
     public func refreshRemoteAccounts(reason: RefreshReason = .manual) async -> [String: Result<RefreshResult, Error>] {
         var results: [String: Result<RefreshResult, Error>] = [:]
-        for (accountID, provider) in providers where accountID != "local-default" {
+        for (accountID, provider) in providers where provider.accountType != .local {
             if isSyncing[accountID] == true {
                 continue
             }

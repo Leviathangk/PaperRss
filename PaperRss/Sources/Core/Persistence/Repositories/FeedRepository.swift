@@ -211,7 +211,9 @@ public final class FeedRepository: Sendable {
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return }
 
-        let folderID = "\(accountID):folder:\(clean)".stableDigest
+        if try isICloud(accountID, in: db),
+           try FolderRecord.filter(Column("account_id") == accountID && Column("name") == clean && Column("is_deleted") == false).fetchOne(db) != nil { return }
+        let folderID = try isICloud(accountID, in: db) ? UUID().uuidString : "\(accountID):folder:\(clean)".stableDigest
         if try FolderRecord.filter(Column("id") == folderID).fetchOne(db) == nil {
             let maxSort = (try Int.fetchOne(db, sql: "SELECT MAX(sort_order) FROM folders WHERE account_id = ?;", arguments: [accountID])) ?? 0
             let record = FolderRecord(
@@ -228,6 +230,10 @@ public final class FeedRepository: Sendable {
     }
 
     public func deleteFolder(name: String, accountID: String = "local-default", in db: Database) throws {
+        if try isICloud(accountID, in: db) {
+            _ = try FolderRecord.filter(Column("account_id") == accountID && Column("name") == name).deleteAll(db)
+            return
+        }
         let folderID = "\(accountID):folder:\(name)".stableDigest
         _ = try FeedFolderRecord.filter(Column("folder_id") == folderID).deleteAll(db)
         _ = try FolderRecord.filter(Column("id") == folderID).deleteAll(db)
@@ -236,6 +242,13 @@ public final class FeedRepository: Sendable {
     public func renameFolder(oldName: String, newName: String, accountID: String = "local-default", in db: Database) throws {
         let cleanNew = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanNew.isEmpty, cleanNew != oldName else { return }
+        if try isICloud(accountID, in: db) {
+            try db.execute(sql: """
+                UPDATE folders SET name = ?, updated_at = ?
+                WHERE account_id = ? AND name = ? AND is_deleted = 0;
+                """, arguments: [cleanNew, Date().timeIntervalSince1970, accountID, oldName])
+            return
+        }
 
         let oldFolderID = "\(accountID):folder:\(oldName)".stableDigest
         let newFolderID = "\(accountID):folder:\(cleanNew)".stableDigest
@@ -276,9 +289,20 @@ public final class FeedRepository: Sendable {
 
         // 确保 folder 存在
         try addFolder(name: folderName, accountID: accountID, in: db)
-        let folderID = "\(accountID):folder:\(folderName)".stableDigest
+        let folderID: String
+        if try isICloud(accountID, in: db) {
+            guard let folder = try FolderRecord.filter(Column("account_id") == accountID && Column("name") == folderName && Column("is_deleted") == false).fetchOne(db)
+            else { return }
+            folderID = folder.id
+        } else {
+            folderID = "\(accountID):folder:\(folderName)".stableDigest
+        }
         let link = FeedFolderRecord(feedID: feedID, folderID: folderID)
         try link.save(db)
+    }
+
+    private func isICloud(_ accountID: String, in db: Database) throws -> Bool {
+        try String.fetchOne(db, sql: "SELECT type FROM accounts WHERE id = ?", arguments: [accountID]) == AccountType.iCloud.rawValue
     }
 
     public func setFeedFolder(feedIDs: Set<String>, folderName: String?, accountID: String = "local-default", in db: Database) throws {

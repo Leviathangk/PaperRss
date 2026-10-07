@@ -182,7 +182,8 @@ final class ArticlePreviewPersistenceTests: XCTestCase {
             try queue.write { db in
                 try AccountRecord(id: "local-default", type: "local", displayName: "Local", createdAt: 1, updatedAt: 1).save(db)
                 try FeedRecord(id: "feed", accountID: "local-default", title: "Feed", feedURL: "https://example.com/rss", updatedAt: 1).save(db)
-                try ItemRecord(id: "old", accountID: "local-default", externalID: "old", feedID: "feed", createdAt: 1, updatedAt: 1).save(db)
+                // Seed the historical schema, not the current ItemRecord encoder.
+                try db.execute(sql: "INSERT INTO items(id,account_id,external_id,feed_id,created_at,updated_at) VALUES('old','local-default','old','feed',1,1)")
                 try db.execute(sql: "INSERT INTO articles(item_id,title,summary,content_html,content_updated_at) VALUES('old','Old','Summary','<img src=old.jpg>',1)")
                 try ArticleStateRecord(itemID: "old", isRead: true, isStarred: true, dateArrived: 1, updatedAt: 1).save(db)
             }

@@ -687,6 +687,79 @@ public enum DatabaseMigrations {
             try extendAccountTypesToMiniflux(db)
         }
 
+        migrator.registerMigration("v14-icloud-sync-journal") { db in
+            try ICloudSyncSchema.install(in: db)
+        }
+
+        migrator.registerMigration("v15-icloud-record-protocol") { db in
+            try rebuildAccountTypes(db, includesICloud: true)
+            try ICloudRecordSchema.install(in: db)
+        }
+
+        migrator.registerMigration("v16-icloud-article-content") { db in
+            try ICloudContentSchema.install(in: db)
+        }
+
+        migrator.registerMigration("v17-icloud-root-generation") { db in
+            try db.execute(sql: """
+                ALTER TABLE icloud_sync_scope ADD COLUMN cloud_generation TEXT;
+                ALTER TABLE icloud_sync_scope ADD COLUMN cloud_generation_proposal TEXT;
+                """)
+        }
+
+        migrator.registerMigration("v18-icloud-bootstrap-retry") { db in
+            try db.execute(sql: """
+                ALTER TABLE icloud_sync_scope ADD COLUMN root_retry_at REAL;
+                ALTER TABLE icloud_sync_scope ADD COLUMN root_retry_attempt INTEGER NOT NULL DEFAULT 0 CHECK(root_retry_attempt >= 0);
+                ALTER TABLE icloud_sync_scope ADD COLUMN root_retry_revision INTEGER NOT NULL DEFAULT 0;
+                """)
+        }
+
+        migrator.registerMigration("v19-icloud-approved-cloud-reset") { db in
+            try db.execute(sql: "ALTER TABLE icloud_sync_scope ADD COLUMN cloud_reset_operation BLOB;")
+        }
+
+        migrator.registerMigration("v20-icloud-readonly-local-archive") { db in
+            try ICloudLocalArchiveSchema.install(in: db)
+        }
+
+        migrator.registerMigration("v21-icloud-writer-protocol-binding") { db in
+            // Existing generations keep their original writer contract. This
+            // migration does not upgrade a cloud root or activate cleanup.
+            try db.execute(sql: """
+                ALTER TABLE icloud_sync_scope ADD COLUMN cloud_protocol_version INTEGER NOT NULL DEFAULT 2
+                    CHECK(cloud_protocol_version IN (2, 3));
+                CREATE TRIGGER icloud_clock_integrity_insert BEFORE INSERT ON icloud_sync_scope
+                WHEN typeof(NEW.logical_clock) != 'integer' OR NEW.logical_clock < 0
+                BEGIN SELECT RAISE(ABORT, 'invalid iCloud logical clock'); END;
+                CREATE TRIGGER icloud_clock_integrity_update BEFORE UPDATE OF logical_clock ON icloud_sync_scope
+                WHEN typeof(NEW.logical_clock) != 'integer' OR NEW.logical_clock < 0
+                BEGIN SELECT RAISE(ABORT, 'invalid iCloud logical clock'); END;
+                """)
+        }
+
+        migrator.registerMigration("v22-icloud-approved-retention-job") { db in
+            // No approval, job, cloud call or local data disposition is created
+            // by schema installation. Existing archive UPDATE guards apply.
+            try db.execute(sql: """
+                ALTER TABLE icloud_sync_scope ADD COLUMN retention_job BLOB;
+                ALTER TABLE icloud_sync_scope ADD COLUMN retention_schedule_enabled INTEGER NOT NULL DEFAULT 0
+                    CHECK(retention_schedule_enabled IN (0, 1));
+                ALTER TABLE icloud_sync_scope ADD COLUMN retention_wake_at REAL;
+                ALTER TABLE icloud_sync_scope ADD COLUMN retention_wake_delay REAL;
+                ALTER TABLE icloud_sync_scope ADD COLUMN retention_wake_attempt INTEGER NOT NULL DEFAULT 0
+                    CHECK(retention_wake_attempt >= 0);
+                ALTER TABLE icloud_sync_scope ADD COLUMN retention_wake_revision INTEGER NOT NULL DEFAULT 0
+                    CHECK(typeof(retention_wake_revision) = 'integer' AND retention_wake_revision >= 0);
+                """)
+        }
+
+        migrator.registerMigration("v23-icloud-retention-maintenance-consent") { db in
+            // No future-article consent is inferred from an existing finite
+            // job or product rules. Archive guards cover this nullable column.
+            try db.execute(sql: "ALTER TABLE icloud_sync_scope ADD COLUMN retention_maintenance BLOB;")
+        }
+
         return migrator
     }
 
@@ -695,6 +768,10 @@ public enum DatabaseMigrations {
     /// 独立暴露以便迁移测试在受控数据库上复现升级路径。
     /// 兼容极早期 Schema：endpoint_url / username / is_enabled 缺失时按默认值补齐。
     static func extendAccountTypesToMiniflux(_ db: Database) throws {
+        try rebuildAccountTypes(db, includesICloud: false)
+    }
+
+    private static func rebuildAccountTypes(_ db: Database, includesICloud: Bool) throws {
         guard try db.tableExists("accounts") else { return }
 
         let existingColumns = Set(
@@ -715,7 +792,7 @@ public enum DatabaseMigrations {
                 created_at      REAL NOT NULL,
                 updated_at      REAL NOT NULL,
 
-                CHECK (type IN ('local', 'freshRSS', 'miniflux'))
+                CHECK (type IN ('local', 'freshRSS', 'miniflux'\(includesICloud ? ", 'iCloud'" : "")))
             );
 
             INSERT INTO accounts_new (id, type, display_name, endpoint_url, username, is_enabled, created_at, updated_at)

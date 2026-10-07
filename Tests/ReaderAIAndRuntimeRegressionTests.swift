@@ -475,39 +475,17 @@ final class ReaderAIAndRuntimeRegressionTests: XCTestCase {
     // MARK: - Test I: local-default has no account_sync_state after migration/update
     func testI_LocalAccountSyncStateCleanedAfterMigration() throws {
         let dbURL = tempDir.appendingPathComponent("sync_state_test.sqlite")
-        // 1. 初始化纯 v1 数据库并手动插入 local-default 的 account_sync_state
-        var v1Migrator = DatabaseMigrator()
-        v1Migrator.registerMigration("v1-create-library-schema") { db in
+        // 1. 使用真实完整 v1 schema，避免用缺少业务表的夹具执行后续迁移。
+        let pool = try DatabasePool(path: dbURL.path)
+        try DatabaseMigrations.migrator.migrate(pool, upTo: "v1-create-library-schema")
+        try pool.write { db in
             try db.execute(sql: """
-            CREATE TABLE accounts (
-                id TEXT PRIMARY KEY NOT NULL,
-                type TEXT NOT NULL,
-                display_name TEXT NOT NULL,
-                endpoint_url TEXT,
-                username TEXT,
-                is_enabled INTEGER NOT NULL DEFAULT 1,
-                created_at REAL NOT NULL,
-                updated_at REAL NOT NULL
-            );
-            CREATE TABLE account_sync_state (
-                account_id TEXT PRIMARY KEY NOT NULL,
-                initial_sync_completed INTEGER NOT NULL DEFAULT 0,
-                last_sync_started_at REAL,
-                last_sync_completed_at REAL,
-                last_full_reconcile_at REAL,
-                last_article_fetch_at REAL,
-                consecutive_failure_count INTEGER NOT NULL DEFAULT 0,
-                last_error TEXT
-            );
             INSERT INTO accounts (id, type, display_name, created_at, updated_at)
             VALUES ('local-default', 'local', 'Local Account', 0, 0);
             INSERT INTO account_sync_state (account_id, initial_sync_completed)
             VALUES ('local-default', 1);
             """)
         }
-
-        let pool = try DatabasePool(path: dbURL.path)
-        try v1Migrator.migrate(pool)
 
         // 验证插入成功
         try pool.read { db in
@@ -748,34 +726,10 @@ final class ReaderAIAndRuntimeRegressionTests: XCTestCase {
     // MARK: - Test M: v3 migration normalizes local item external_id
     func testM_V3MigrationNormalizesLocalItemExternalID() throws {
         let dbURL = tempDir.appendingPathComponent("v3_migration_test.sqlite")
-        var migrator = DatabaseMigrator()
-        migrator.registerMigration("v1-create-library-schema") { db in
+        let pool = try DatabasePool(path: dbURL.path)
+        try DatabaseMigrations.migrator.migrate(pool, upTo: "v2-clean-local-account-sync-state")
+        try pool.write { db in
             try db.execute(sql: """
-            CREATE TABLE accounts (
-                id TEXT PRIMARY KEY NOT NULL,
-                type TEXT NOT NULL,
-                display_name TEXT NOT NULL,
-                created_at REAL NOT NULL,
-                updated_at REAL NOT NULL
-            );
-            CREATE TABLE feeds (
-                id TEXT PRIMARY KEY NOT NULL,
-                account_id TEXT NOT NULL,
-                title TEXT NOT NULL,
-                feed_url TEXT NOT NULL,
-                is_deleted INTEGER NOT NULL DEFAULT 0,
-                updated_at REAL NOT NULL,
-                sort_order INTEGER NOT NULL DEFAULT 0
-            );
-            CREATE TABLE items (
-                id TEXT PRIMARY KEY NOT NULL,
-                account_id TEXT NOT NULL,
-                external_id TEXT,
-                feed_id TEXT NOT NULL,
-                created_at REAL NOT NULL,
-                updated_at REAL NOT NULL
-            );
-            CREATE UNIQUE INDEX idx_items_remote_identity ON items (account_id, external_id) WHERE external_id IS NOT NULL;
             INSERT INTO accounts (id, type, display_name, created_at, updated_at)
             VALUES ('local-default', 'local', 'Local', 0, 0);
             INSERT INTO feeds (id, account_id, title, feed_url, updated_at)
@@ -784,11 +738,6 @@ final class ReaderAIAndRuntimeRegressionTests: XCTestCase {
             VALUES ('digest-1', 'local-default', 'raw-id-1', 'f1', 0, 0);
             """)
         }
-        migrator.registerMigration("v2-clean-local-account-sync-state") { _ in }
-
-        let pool = try DatabasePool(path: dbURL.path)
-        try migrator.migrate(pool)
-
         // 运行全局 DatabaseMigrations (包含 v3)
         try DatabaseMigrations.migrator.migrate(pool)
 

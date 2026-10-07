@@ -269,7 +269,7 @@ struct RootView: View {
     @State private var showsAddFolder = false
     @State private var initialFeedDestination: FeedTargetDestination? = nil
     @State private var initialFolderAccountID: String? = nil
-    @State private var renamingFolder: String? = nil
+    @State private var renamingFolder: FolderIdentifiable? = nil
     @State private var showsSettings = false
     @State private var showsImporter = false
     @State private var showsExporter = false
@@ -360,29 +360,26 @@ struct RootView: View {
                     initialFolderAccountID = nil
                 }
             }
-            .sheet(item: Binding(
-                get: { renamingFolder.map { FolderIdentifiable(name: $0) } },
-                set: { renamingFolder = $0?.name }
-            )) { folder in
-                RenameFolderSheet(store: store, oldName: folder.name) { newName in
+            .sheet(item: $renamingFolder) { folder in
+                RenameFolderSheet(store: store, oldName: folder.name, accountID: folder.accountID) { newName in
                     // 重命名当前选中的文件夹后，侧栏选择与中间栏内容应跟随，
                     // 否则高亮消失、文章列表显示"没有文章"。
-                    if case let .folder(acc, current) = selection, acc == "local-default" && current == folder.name {
-                        selection = .folder(accountID: "local-default", folderName: newName)
+                    if case let .folder(acc, current) = selection, acc == folder.accountID && current == folder.name {
+                        selection = .folder(accountID: folder.accountID, folderName: newName)
                     }
                 }
             }
             #if os(iOS)
             .sheet(isPresented: $showsSettings) { NavigationStack { SettingsView(store: store).navigationTitle(I18N.localized("设置")) } }
             #endif
-            .fileImporter(isPresented: $showsImporter, allowedContentTypes: OPMLDocument.readableContentTypes) { result in
+            .fileImporter(isPresented: $showsImporter, allowedContentTypes: OPMLExportDocument.readableContentTypes) { result in
                 guard case let .success(url) = result else { return }
                 let didAccess = url.startAccessingSecurityScopedResource()
                 defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
                 guard let data = try? Data(contentsOf: url) else { return }
                 Task { await store.importOPML(data) }
             }
-            .fileExporter(isPresented: $showsExporter, document: OPMLDocument(data: store.exportOPML()), contentType: .xml, defaultFilename: "PaperRss-Subscriptions") { _ in }
+            .fileExporter(isPresented: $showsExporter, document: OPMLExportDocument(data: store.exportOPML()), contentType: .xml, defaultFilename: "PaperRss-Subscriptions") { _ in }
             .alert("PaperRss", isPresented: Binding(get: { store.lastError != nil }, set: { if !$0 { store.dismissError() } })) {
                 Button(I18N.localized("好"), role: .cancel) { store.dismissError() }
             } message: { Text(store.lastError ?? "") }
@@ -1346,7 +1343,7 @@ private struct SidebarView: View {
     @Binding var showsAddFolder: Bool
     @Binding var initialFeedDestination: FeedTargetDestination?
     @Binding var initialFolderAccountID: String?
-    @Binding var renamingFolder: String?
+    @Binding var renamingFolder: FolderIdentifiable?
     @Binding var showsSettings: Bool
     @Binding var showsImporter: Bool
     @Binding var showsExporter: Bool
@@ -1801,7 +1798,12 @@ private struct SidebarView: View {
             DisclosureGroup(isExpanded: isAccountExpandedBinding(accountID: account.id)) {
                 ForEach(visibleFeeds(store.rootFeeds(for: account.id), accountID: account.id)) { feed in
                     remoteFeedRow(feed, accountID: account.id)
+                        .moveDisabled(account.type != AccountType.iCloud.rawValue || filtersUnreadFeeds)
                         .transition(.opacity)
+                }
+                .onMove { fromOffsets, toOffset in
+                    guard account.type == AccountType.iCloud.rawValue, !filtersUnreadFeeds else { return }
+                    store.reorderRootFeeds(fromOffsets: fromOffsets, toOffset: toOffset, accountID: account.id)
                 }
                 .animation(feedFilterAnimation, value: visibleFeeds(store.rootFeeds(for: account.id), accountID: account.id).map(\.id))
 
@@ -1812,14 +1814,24 @@ private struct SidebarView: View {
                         content: {
                             ForEach(visibleFeeds(store.feeds(in: folder, for: account.id), accountID: account.id, folder: folder)) { feed in
                                 remoteFeedRow(feed, accountID: account.id, inFolder: true)
+                                    .moveDisabled(account.type != AccountType.iCloud.rawValue || filtersUnreadFeeds)
                                     .transition(.opacity)
+                            }
+                            .onMove { fromOffsets, toOffset in
+                                guard account.type == AccountType.iCloud.rawValue, !filtersUnreadFeeds else { return }
+                                store.reorderFeeds(in: folder, fromOffsets: fromOffsets, toOffset: toOffset, accountID: account.id)
                             }
                             .animation(feedFilterAnimation, value: visibleFeeds(store.feeds(in: folder, for: account.id), accountID: account.id, folder: folder).map(\.id))
                         },
                         label: {
-                            remoteFolderRow(folder, accountID: account.id)
+                            if account.type == AccountType.iCloud.rawValue { folderRow(folder, accountID: account.id) }
+                            else { remoteFolderRow(folder, accountID: account.id) }
                         }
                     )
+                }
+                .onMove { fromOffsets, toOffset in
+                    guard account.type == AccountType.iCloud.rawValue, !filtersUnreadFeeds else { return }
+                    store.reorderFolders(fromOffsets: fromOffsets, toOffset: toOffset, accountID: account.id)
                 }
             } label: {
                 accountRow(account.displayName, accountID: account.id)
@@ -1828,8 +1840,13 @@ private struct SidebarView: View {
     }
 
     private func accountRow(_ title: String, accountID: String) -> some View {
-        SidebarRow(title, systemImage: "desktopcomputer",
-                   count: store.feeds(for: accountID).reduce(0) { $0 + store.unreadCount(feedID: $1.id) },
+        let isCloud = store.accounts.contains { $0.id == accountID && $0.type == AccountType.iCloud.rawValue }
+        var counted = Set<UUID>()
+        let count = store.feeds(for: accountID).reduce(0) { total, feed in
+            total + (counted.insert(feed.id).inserted ? store.unreadCount(feedID: feed.id) : 0)
+        }
+        return SidebarRow(title, systemImage: isCloud ? "icloud" : "desktopcomputer",
+                   count: count,
                    syncProgress: store.accountRefreshProgress[accountID], pulsesWhileSyncing: true, isSelected: selection == .account(accountID),
                    isFiltered: unreadFilteredGroups.contains(.account(accountID)), onToggleFilter: filterAction(for: .account(accountID)))
             .equatable()
@@ -1838,6 +1855,10 @@ private struct SidebarView: View {
             .contentShape(Rectangle())
             .tag(SidebarSelection.account(accountID))
             .onTapGesture { selectAccount(accountID) }
+            .dropDestination(for: String.self) { items, _ in
+                let ids = Set(items.flatMap { $0.split(separator: ",").compactMap { UUID(uuidString: String($0)) } })
+                return store.moveFeeds(ids, toFolder: nil, accountID: accountID)
+            }
             .contextMenu {
                 Button {
                     initialFeedDestination = FeedTargetDestination(accountID: accountID, folder: nil)
@@ -1905,6 +1926,15 @@ private struct SidebarView: View {
 
     @ViewBuilder
     private func remoteFeedRow(_ feed: Feed, accountID: String, inFolder: Bool = false) -> some View {
+        if store.accounts.contains(where: { $0.id == accountID && $0.type == AccountType.iCloud.rawValue }) {
+            remoteFeedRowContent(feed, accountID: accountID, inFolder: inFolder)
+                .draggable(selectedFeedIDs.contains(feed.id) && selectedFeedIDs.count > 1 ? selectedFeedIDs.map(\.uuidString).joined(separator: ",") : feed.id.uuidString)
+        } else {
+            remoteFeedRowContent(feed, accountID: accountID, inFolder: inFolder)
+        }
+    }
+
+    private func remoteFeedRowContent(_ feed: Feed, accountID: String, inFolder: Bool = false) -> some View {
         SidebarRow(
             feed.title,
             systemImage: "dot.radiowaves.left.and.right",
@@ -1931,6 +1961,10 @@ private struct SidebarView: View {
                         copyToClipboard(urls)
                     } label: {
                         Label(I18N.shared.localizedFormat("复制选中订阅链接 (%lld)", selectedFeedIDs.count), systemImage: "doc.on.doc")
+                    }
+
+                    if store.accounts.contains(where: { $0.id == accountID && $0.type == AccountType.iCloud.rawValue }) {
+                        cloudMoveMenu(feedIDs: selectedFeedIDs, accountID: accountID, multiple: true)
                     }
 
                     unreadFilterClearMenuItems(for: .feeds(selectedFeedIDs), includesFeedFilters: false)
@@ -1967,6 +2001,10 @@ private struct SidebarView: View {
                         Label(I18N.localized("复制订阅"), systemImage: "doc.on.doc")
                     }
 
+                    if store.accounts.contains(where: { $0.id == accountID && $0.type == AccountType.iCloud.rawValue }) {
+                        cloudMoveMenu(feedIDs: [feed.id], accountID: accountID, multiple: false)
+                    }
+
                     Divider()
 
                     Button(role: .destructive) {
@@ -1980,6 +2018,34 @@ private struct SidebarView: View {
                     }
                 }
             }
+    }
+
+    private func cloudMoveMenu(feedIDs: Set<UUID>, accountID: String, multiple: Bool) -> some View {
+        Menu {
+            Button(I18N.localized("无分类")) {
+                store.moveFeeds(feedIDs, toFolder: nil, accountID: accountID)
+            }
+            if !store.folders(for: accountID).isEmpty {
+                Divider()
+                ForEach(store.folders(for: accountID), id: \.self) { targetFolder in
+                    Button(targetFolder) {
+                        guard store.moveFeeds(feedIDs, toFolder: targetFolder, accountID: accountID) else { return }
+                        var current = collapsedFolders
+                        current.remove("\(accountID)::\(targetFolder)")
+                        collapsedFolders = current
+                    }
+                }
+            }
+            Divider()
+            Button {
+                initialFolderAccountID = accountID
+                showsAddFolder = true
+            } label: {
+                Label(I18N.localized("新建文件夹..."), systemImage: "folder.badge.plus")
+            }
+        } label: {
+            Label(I18N.localized(multiple ? "移动选中项到文件夹" : "移动到文件夹"), systemImage: "folder")
+        }
     }
 
     @ViewBuilder
@@ -2032,11 +2098,12 @@ private struct SidebarView: View {
         let key = "\(accountID)::\(folder)"
         let isDeleting = deletingFolderKeys.contains(key)
         FolderRowView(folder: folder, isExpanded: isFolderExpandedBinding(key: key).wrappedValue, unreadCount: store.unreadCount(folder: folder, accountID: accountID), isSyncing: (store.accountRefreshProgress[accountID] != nil) || isDeleting, isFiltered: unreadFilteredGroups.contains(.folder(accountID: accountID, folderName: folder)), onToggleFilter: filterAction(for: .folder(accountID: accountID, folderName: folder))) { feedIDs in
-            store.setFeedFolder(feedIDs: feedIDs, folder: folder)
+            guard store.moveFeeds(feedIDs, toFolder: folder, accountID: accountID) else { return false }
             var current = collapsedFolders
             current.remove(key)
             current.remove(folder)
             collapsedFolders = current
+            return true
         }
         .contentShape(Rectangle())
         .tag(SidebarSelection.folder(accountID: accountID, folderName: folder))
@@ -2069,7 +2136,7 @@ private struct SidebarView: View {
                 unreadFilterClearMenuItems(for: .folder(accountID: accountID, folderName: folder), includesFeedFilters: false)
 
                 Button {
-                    renamingFolder = folder
+                    renamingFolder = FolderIdentifiable(name: folder, accountID: accountID)
                 } label: {
                     Label(I18N.localized("重命名文件夹"), systemImage: "pencil")
                 }
@@ -2633,7 +2700,7 @@ private struct FolderRowView: View {
     var isSyncing: Bool = false
     var isFiltered: Bool = false
     var onToggleFilter: (() -> Void)? = nil
-    let onDropBatch: (Set<UUID>) -> Void
+    let onDropBatch: (Set<UUID>) -> Bool
 
     @State private var isTargeted = false
 
@@ -2650,8 +2717,7 @@ private struct FolderRowView: View {
                 isTargeted = false
                 let feedIDs = Set(items.flatMap { $0.components(separatedBy: ",").compactMap { UUID(uuidString: $0) } })
                 guard !feedIDs.isEmpty else { return false }
-                onDropBatch(feedIDs)
-                return true
+                return onDropBatch(feedIDs)
             } isTargeted: { targeted in
                 isTargeted = targeted
             }
@@ -4027,7 +4093,7 @@ extension UTType {
     }
 }
 
-private struct OPMLDocument: FileDocument {
+private struct OPMLExportDocument: FileDocument {
     static var readableContentTypes: [UTType] {
         var types: [UTType] = [.xml, .opml]
         if let extType = UTType(filenameExtension: "opml") { types.append(extType) }
@@ -4041,8 +4107,9 @@ private struct OPMLDocument: FileDocument {
 }
 
 private struct FolderIdentifiable: Identifiable {
-    var id: String { name }
+    var id: String { "\(accountID)::\(name)" }
     let name: String
+    var accountID: String = "local-default"
 }
 
 private struct AddFolderSheet: View {
@@ -4169,15 +4236,17 @@ private struct AddFolderSheet: View {
 private struct RenameFolderSheet: View {
     @ObservedObject var store: AppStore
     let oldName: String
+    let accountID: String
     /// Called with the final folder name after a successful rename so the
     /// parent can keep the sidebar selection in sync.
     var onRename: ((String) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var newName: String = ""
 
-    init(store: AppStore, oldName: String, onRename: ((String) -> Void)? = nil) {
+    init(store: AppStore, oldName: String, accountID: String = "local-default", onRename: ((String) -> Void)? = nil) {
         self.store = store
         self.oldName = oldName
+        self.accountID = accountID
         self.onRename = onRename
         _newName = State(initialValue: oldName)
     }
@@ -4186,7 +4255,7 @@ private struct RenameFolderSheet: View {
         let clean = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty && clean != oldName else { return false }
         // 禁止重名：renameFolder 会把两个文件夹静默合并。
-        return !store.folders.contains { $0 == clean }
+        return !store.folders(for: accountID).contains { $0 == clean }
     }
 
     var body: some View {
@@ -4221,7 +4290,7 @@ private struct RenameFolderSheet: View {
     private func submit() {
         guard canSubmit else { return }
         let clean = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        store.renameFolder(from: oldName, to: clean)
+        store.renameFolder(from: oldName, to: clean, accountID: accountID)
         onRename?(clean)
         dismiss()
     }

@@ -26,6 +26,7 @@ public enum LocalAccountError: LocalizedError, Equatable, Sendable {
 /// - OPML 导入与导出
 public final class LocalAccountProvider: AccountProvider, Sendable {
     public let accountID: String
+    public var accountType: AccountType { .local }
     private let database: LibraryDatabase
     public let feedRepository: FeedRepository
     public let articleRepository: ArticleRepository
@@ -261,7 +262,7 @@ public final class LocalAccountProvider: AccountProvider, Sendable {
         let now = Date().timeIntervalSince1970
 
         guard let existing = try feedRepository.fetchFeed(id: feedIDString, in: db),
-              !existing.isDeleted else {
+              existing.accountID == accountID, !existing.isDeleted else {
             return (false, [])
         }
 
@@ -462,28 +463,47 @@ public final class LocalAccountProvider: AccountProvider, Sendable {
     // MARK: - OPML
 
     public func exportOPML() throws -> Data {
-        let feeds = try fetchFeeds()
-        return OPMLService.export(feeds: feeds)
+        try database.read { db in
+            try exportOPML(accountID: accountID, in: db)
+        }
+    }
+
+    func exportOPML(accountID: String, in db: Database) throws -> Data {
+        let feeds = try feedRepository.fetchAllFeedModels(accountID: accountID, in: db)
+        let folders = try feedRepository.fetchFolderNames(accountID: accountID, in: db)
+        let rows = try Row.fetchAll(db, sql: """
+            SELECT ff.feed_id, fo.name FROM feed_folders ff
+            JOIN folders fo ON fo.id = ff.folder_id JOIN feeds f ON f.id = ff.feed_id
+            WHERE f.account_id = ? AND fo.account_id = ? AND f.is_deleted = 0 AND fo.is_deleted = 0;
+            """, arguments: [accountID, accountID])
+        var memberships: [UUID: [String]] = [:]
+        for row in rows {
+            if let id = UUID(uuidString: row["feed_id"]) { memberships[id, default: []].append(row["name"]) }
+        }
+        return OPMLService.export(feeds: feeds, folders: folders, memberships: memberships)
     }
 
     public func importOPML(_ data: Data) throws -> [UUID] {
-        let urls = OPMLService.importURLs(data: data)
+        let document = try OPMLService.parse(data: data)
         return try database.write { db in
-            try importOPMLURLs(urls, in: db)
+            try importOPMLDocument(document, in: db)
         }
     }
 
     /// 在数据库 writer queue 批量导入 OPML，避免 300 个订阅逐条占用 MainActor。
     public func importOPMLAsync(_ data: Data) async throws -> [UUID] {
-        let urls = OPMLService.importURLs(data: data)
+        let document = try OPMLService.parse(data: data)
         return try await database.writeAsync { db in
-            try self.importOPMLURLs(urls, in: db)
+            try self.importOPMLDocument(document, in: db)
         }
     }
 
-    private func importOPMLURLs(_ urls: [URL], in db: Database) throws -> [UUID] {
+    private func importOPMLDocument(_ document: OPMLDocument, in db: Database) throws -> [UUID] {
         var newFeedIDs: [UUID] = []
-        var seenURLs = Set<String>()
+        for folder in document.folders { try feedRepository.addFolder(name: folder, accountID: accountID, in: db) }
+        let folders = try feedRepository.fetchAllFolders(accountID: accountID, in: db)
+        let folderIDs = Dictionary(folders.map { ($0.name, $0.id) }, uniquingKeysWith: { first, _ in first })
+        var imported: [String: String] = [:]
         let now = Date().timeIntervalSince1970
         var nextSortOrder = (try Int.fetchOne(
             db,
@@ -491,40 +511,40 @@ public final class LocalAccountProvider: AccountProvider, Sendable {
             arguments: [accountID]
         )) ?? 0
 
-        for url in urls where seenURLs.insert(url.absoluteString).inserted {
-            let feedURLString = url.absoluteString
-            let title = url.host ?? feedURLString
-            if var existing = try feedRepository.fetchFeedByURL(
+        for subscription in document.subscriptions {
+            let feedURLString = subscription.feedURL.absoluteString
+            let title = subscription.title ?? subscription.feedURL.host ?? feedURLString
+            let feedID: String
+            if let id = imported[feedURLString] {
+                feedID = id
+            } else if var existing = try feedRepository.fetchFeedByURL(
                 accountID: accountID,
                 feedURL: feedURLString,
                 includeDeleted: true,
                 in: db
             ) {
-                guard existing.isDeleted else { continue }
-                existing.isDeleted = false
-                existing.updatedAt = now
-                if !title.isEmpty { existing.title = title }
-                try feedRepository.saveFeed(existing, in: db)
-                if let id = UUID(uuidString: existing.id) {
-                    newFeedIDs.append(id)
+                feedID = existing.id
+                if existing.isDeleted {
+                    existing.isDeleted = false
+                    existing.updatedAt = now
+                    existing.title = title
+                    existing.siteURL = subscription.siteURL?.absoluteString ?? existing.siteURL
+                    try feedRepository.saveFeed(existing, in: db)
+                    if let id = UUID(uuidString: existing.id) { newFeedIDs.append(id) }
                 }
-                continue
+            } else {
+                nextSortOrder += 1
+                let id = UUID()
+                feedID = id.uuidString
+                try feedRepository.saveFeed(FeedRecord(id: feedID, accountID: accountID, title: title,
+                    siteURL: subscription.siteURL?.absoluteString, feedURL: feedURLString,
+                    updatedAt: now, sortOrder: nextSortOrder), in: db)
+                newFeedIDs.append(id)
             }
-
-            nextSortOrder += 1
-            let id = UUID()
-            try feedRepository.saveFeed(
-                FeedRecord(
-                    id: id.uuidString,
-                    accountID: accountID,
-                    title: title,
-                    feedURL: feedURLString,
-                    updatedAt: now,
-                    sortOrder: nextSortOrder
-                ),
-                in: db
-            )
-            newFeedIDs.append(id)
+            imported[feedURLString] = feedID
+            if let folder = subscription.folder, let folderID = folderIDs[folder] {
+                try FeedFolderRecord(feedID: feedID, folderID: folderID).save(db)
+            }
         }
 
         return newFeedIDs
@@ -533,7 +553,8 @@ public final class LocalAccountProvider: AccountProvider, Sendable {
     // MARK: - AccountProvider
 
     public func refresh(reason: RefreshReason) async throws -> RefreshResult {
-        let feeds = (try? fetchFeeds()) ?? []
+        var seenFeedIDs = Set<UUID>()
+        let feeds = ((try? fetchFeeds()) ?? []).filter { seenFeedIDs.insert($0.id).inserted }
         for feed in feeds {
             let singleRes = await fetchSingleFeed(feed: feed)
             _ = try? applyRefreshResult(singleRes)
@@ -566,9 +587,10 @@ public final class LocalAccountProvider: AccountProvider, Sendable {
         try database.write { db in
             try self.feedRepository.addFolder(name: clean, accountID: self.accountID, in: db)
         }
-        let folderID = "\(accountID):folder:\(clean)".stableDigest
         return try database.read { db in
-            guard let folder = try FolderRecord.filter(Column("id") == folderID).fetchOne(db) else {
+            guard let folder = try FolderRecord.filter(
+                Column("account_id") == accountID && Column("name") == clean && Column("is_deleted") == false
+            ).fetchOne(db) else {
                 throw LocalAccountError.feedNotFound
             }
             return folder

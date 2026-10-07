@@ -118,6 +118,8 @@ public final class ArticleRepository: Sendable {
         for parsed in parsedEntries {
             let preview = parsed.previewImage ?? EntryPreviewImageExtractor.extract(contentHTML: parsed.contentHTML, baseURL: parsed.url)
             let itemID = "\(feedID)|\(parsed.id)".stableDigest
+            let sourceItemID = parsed.syncIdentityIsReliable &&
+                !parsed.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? parsed.id : nil
             try AutoTranslationRepository.saveHints(parsed.languageHints, scope: "article", id: itemID, in: db)
             let existingItem = try ItemRecord.filter(Column("id") == itemID).fetchOne(db)
 
@@ -129,7 +131,8 @@ public final class ArticleRepository: Sendable {
                     externalID: itemID,
                     feedID: feedID,
                     createdAt: now,
-                    updatedAt: now
+                    updatedAt: now,
+                    sourceItemID: sourceItemID
                 )
                 try item.save(db)
 
@@ -172,6 +175,11 @@ public final class ArticleRepository: Sendable {
                 )
                 newUnreadEntries.append(newEntry)
             } else {
+                // Recover the original identity without rewriting local IDs, states or cache keys.
+                if var item = existingItem, item.sourceItemID == nil, let sourceItemID {
+                    item.sourceItemID = sourceItemID
+                    try item.save(db)
+                }
                 // 2. 已有条目：仅在内容发生改变时更新 Article 正文；正文被清理时执行回填恢复
                 if let existingArticle = try ArticleRecord.filter(Column("item_id") == itemID).fetchOne(db) {
                     var needsUpdate = false
@@ -374,6 +382,7 @@ public final class ArticleRepository: Sendable {
             INNER JOIN items i ON i.id = a.item_id
             WHERE s.is_read = 1
               AND s.is_starred = 0
+              AND NOT EXISTS (SELECT 1 FROM accounts acc WHERE acc.id = i.account_id AND acc.is_archived = 1)
               AND (s.date_arrived < ? OR (s.date_arrived IS NULL AND i.created_at < ?))
             LIMIT ?;
             """
@@ -434,6 +443,7 @@ public final class ArticleRepository: Sendable {
         LEFT JOIN articles a ON a.item_id = i.id
         LEFT JOIN article_states s ON s.item_id = i.id
         WHERE a.item_id IS NULL
+          AND NOT EXISTS (SELECT 1 FROM accounts acc WHERE acc.id = i.account_id AND acc.is_archived = 1)
           AND (s.date_arrived < ? OR (s.date_arrived IS NULL AND i.created_at < ?))
           AND COALESCE(s.is_read, 1) = 1
           AND COALESCE(s.is_starred, 0) = 0

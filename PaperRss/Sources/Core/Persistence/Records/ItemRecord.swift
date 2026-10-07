@@ -13,6 +13,8 @@ public struct ItemRecord: Codable, FetchableRecord, PersistableRecord, TableReco
     public var feedID: String
     public var createdAt: Double
     public var updatedAt: Double
+    /// Original parser identity; nil for legacy rows until a matching refresh.
+    public var sourceItemID: String?
 
     public init(
         id: String,
@@ -20,7 +22,8 @@ public struct ItemRecord: Codable, FetchableRecord, PersistableRecord, TableReco
         externalID: String,
         feedID: String,
         createdAt: Double,
-        updatedAt: Double
+        updatedAt: Double,
+        sourceItemID: String? = nil
     ) {
         self.id = id
         self.accountID = accountID
@@ -28,6 +31,7 @@ public struct ItemRecord: Codable, FetchableRecord, PersistableRecord, TableReco
         self.feedID = feedID
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.sourceItemID = sourceItemID
     }
 
     enum CodingKeys: String, CodingKey {
@@ -37,5 +41,6 @@ public struct ItemRecord: Codable, FetchableRecord, PersistableRecord, TableReco
         case feedID = "feed_id"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+        case sourceItemID = "source_item_id"
     }
 }

@@ -5,6 +5,7 @@ public enum AccountType: String, Codable, Hashable, Sendable {
     case local
     case freshRSS
     case miniflux
+    case iCloud
 
     /// 是否为远端同步账号（参与远端订阅、文章与状态同步）。
     public var isRemote: Bool {
@@ -13,13 +14,16 @@ public enum AccountType: String, Codable, Hashable, Sendable {
 
     /// 是否参与远端文章状态双向同步（本地状态变化写入 outbox 并推送到远端）。
     public var syncsRemoteArticleStates: Bool {
-        isRemote
+        self == .freshRSS || self == .miniflux
     }
+
+    /// Local and iCloud accounts fetch RSS directly; server accounts use their API.
+    public var fetchesRSSDirectly: Bool { self == .local || self == .iCloud }
 
     /// 对应的 Google Reader 协议预设；本地账号为 nil。
     public var readerVariant: ReaderServiceVariant? {
         switch self {
-        case .local: return nil
+        case .local, .iCloud: return nil
         case .freshRSS: return .freshRSS
         case .miniflux: return .miniflux
         }
@@ -89,6 +93,7 @@ public struct RefreshResult: Sendable, Equatable {
 /// 遵循 Architecture Contract (Section 7.2 / INV-01)。
 public protocol AccountProvider: Sendable {
     var accountID: String { get }
+    var accountType: AccountType { get }
 
     func refresh(reason: RefreshReason) async throws -> RefreshResult
     func pushPendingArticleStates() async throws
@@ -98,6 +103,12 @@ public protocol AccountProvider: Sendable {
     func deleteFeed(feedID: UUID) async throws
     func addFolder(name: String) async throws -> FolderRecord
     func deleteFolder(name: String) async throws
+}
+
+public extension AccountProvider {
+    // Existing external test providers remain reader providers unless they
+    // explicitly advertise direct local fetching.
+    var accountType: AccountType { .freshRSS }
 }
 
 /// 账号刷新进度；总量未知时显示准备状态，计数仅在落库批次完成后发布。

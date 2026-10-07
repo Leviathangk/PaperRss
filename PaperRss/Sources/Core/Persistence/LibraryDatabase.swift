@@ -199,6 +199,7 @@ public final class LibraryDatabase: Sendable {
                     LEFT JOIN article_caches c ON c.item_id = a.item_id
                     WHERE s.is_read = 1
                       AND s.is_starred = 0
+                      AND NOT EXISTS (SELECT 1 FROM accounts acc WHERE acc.id = i.account_id AND acc.is_archived = 1)
                       AND (s.date_arrived < ? OR (s.date_arrived IS NULL AND i.created_at < ?));
                 """, arguments: [cutoffTimestamp, cutoffTimestamp])
                 prunableArticlesCount = Int(prunableRow?["count"] ?? 0)

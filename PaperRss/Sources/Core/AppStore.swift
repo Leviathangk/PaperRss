@@ -307,6 +307,26 @@ public final class AppStore: ObservableObject {
 
     @Published public private(set) var accounts: [AccountRecord] = []
     @Published public var activeAccountID: String = "local-default"
+    private var iCloudProviders: [String: ICloudAccountProvider] = [:]
+    private var iCloudCopyReviewRoute: (id: UUID, accountID: String, provider: ICloudAccountProvider)?
+    private var iCloudArchiveReviewRoute: (review: ICloudArchiveRecoveryReview, accountID: String, provider: ICloudAccountProvider)?
+    private var accountRecoveryProjectionRevision = 0
+    private let directFeedFetcher: @Sendable (Feed, Bool) async throws -> FeedFetchResult
+    public var supportsICloudSync: Bool { ICloudSyncEngineDriver.isEntitled }
+    public var iCloudAccountCreationAvailability: ICloudAccountCreationAvailability {
+        if accounts.contains(where: { $0.type == AccountType.iCloud.rawValue && !$0.isArchived }) { return .alreadyExists }
+        return supportsICloudSync ? .ready : .unsupportedBuild
+    }
+    public var canAddICloudAccount: Bool {
+        iCloudAccountCreationAvailability == .ready
+    }
+    @Published public private(set) var iCloudPushError: String?
+
+    public func setICloudPushRegistrationAvailable(_ available: Bool) {
+        iCloudPushError = available ? nil : I18N.localized(
+            "iCloud 远程更新通知暂未连接，仍可手动同步。",
+            englishFallback: "Remote iCloud updates are unavailable. You can still sync manually.")
+    }
     private var lastRefreshProgressPublishedAt: [String: Date] = [:]
     @Published public private(set) var accountRefreshProgress: [String: AccountRefreshProgress] = [:]
     @Published public private(set) var accountSyncStates: [String: AccountSyncStateRecord] = [:]
@@ -382,6 +402,7 @@ public final class AppStore: ObservableObject {
             actualFetcher = { feed, force in try await FeedService.fetch(feed, force: force) }
         }
         self.feedFetcher = { feed in try await actualFetcher(feed, false) }
+        self.directFeedFetcher = actualFetcher
         self.customSession = customSession
         self.llm = LLMService(port: URLSessionAIModelAdapter(session: customSession ?? .shared))
         self.preparationEngine = ArticlePreparationEngine(pageLoader: pageLoader ?? DefaultArticlePageLoader())
@@ -538,6 +559,7 @@ public final class AppStore: ObservableObject {
             actualFetcher = { feed, force in try await FeedService.fetch(feed, force: force) }
         }
         self.feedFetcher = { feed in try await actualFetcher(feed, false) }
+        self.directFeedFetcher = actualFetcher
         self.customSession = nil
         self.llm = LLMService(port: aiModelPort ?? URLSessionAIModelAdapter())
         self.preparationEngine = ArticlePreparationEngine(pageLoader: pageLoader ?? DefaultArticlePageLoader())
@@ -667,6 +689,9 @@ public final class AppStore: ObservableObject {
         // 3. 读取 SyncState 并维护启用的 FreshRSS Providers
         var syncStates: [String: AccountSyncStateRecord] = [:]
         for account in fetchedAccounts {
+            if account.type == AccountType.iCloud.rawValue {
+                scheduleICloudProviderRegistration(account)
+            }
             if let state = try? libraryDatabase.read({ db in
                 try AccountSyncStateRecord.filter(Column("account_id") == account.id).fetchOne(db)
             }) {
@@ -703,6 +728,7 @@ public final class AppStore: ObservableObject {
     /// 异步构造刷新后的 UI 快照。所有 SQLite 读取都在 GRDB reader queue 执行，
     /// MainActor 只负责最后一次性提交已完成的值，避免刷新尾部再次阻塞三栏。
     private func reloadStateAsync() async {
+        let recoveryRevision = accountRecoveryProjectionRevision
         let sidebarGeneration = beginSidebarCountsRefresh()
         let calendar = Calendar.current
         let startOfDay = calendar.startOfDay(for: Date()).timeIntervalSince1970
@@ -759,6 +785,9 @@ public final class AppStore: ObservableObject {
         }) ?? []
         let syncStates = Dictionary(uniqueKeysWithValues: syncStateRecords.map { ($0.accountID, $0) })
 
+        // A snapshot started before an archive commit cannot put the old
+        // enabled account back into the UI or provider registration routes.
+        guard recoveryRevision == accountRecoveryProjectionRevision else { return }
         accounts = fetchedAccounts
         feedsByAccount = newFeedsByAccount
         autoTranslationRevision += 1
@@ -776,6 +805,9 @@ public final class AppStore: ObservableObject {
         accountSyncStates = syncStates
 
         for account in fetchedAccounts {
+            if account.type == AccountType.iCloud.rawValue {
+                scheduleICloudProviderRegistration(account)
+            }
             guard let accountType = AccountType(rawValue: account.type), let variant = accountType.readerVariant else { continue }
             if account.isEnabled,
                let urlStr = account.endpointURL,
@@ -876,6 +908,7 @@ public final class AppStore: ObservableObject {
         try await accountRepository.updateAccountEnabled(id: accountID, isEnabled: isEnabled)
         if !isEnabled {
             await syncCoordinator.unregisterProvider(accountID: accountID)
+            await iCloudProviders[accountID]?.stop()
         }
         reloadState()
     }
@@ -1134,22 +1167,24 @@ public final class AppStore: ObservableObject {
     }
 
     public func setFeedFolder(feedID: UUID, folder: String?) {
-        try? localProvider.setFeedFolder(feedID: feedID, folderName: folder)
+        try? directProvider(for: accountID(forFeedID: feedID)).setFeedFolder(feedID: feedID, folderName: folder)
         reloadState()
     }
 
     public func setFeedFolder(feedIDs: Set<UUID>, folder: String?) {
         guard !feedIDs.isEmpty else { return }
-        try? localProvider.setFeedFolder(feedIDs: feedIDs, folderName: folder)
+        for group in Dictionary(grouping: feedIDs, by: { accountID(forFeedID: $0) }) {
+            try? directProvider(for: group.key).setFeedFolder(feedIDs: Set(group.value), folderName: folder)
+        }
         reloadState()
     }
 
     public func addFolder(_ name: String, targetAccountID: String? = nil) {
         guard let clean = name.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty else { return }
-        let accID = targetAccountID ?? (isAccountEnabled("local-default") ? "local-default" : accounts.first(where: { $0.isEnabled })?.id ?? "local-default")
+        let accID = targetAccountID ?? defaultSubscriptionAccountID
 
-        if accID == "local-default" {
-            try? localProvider.addFolder(name: clean)
+        if accID == "local-default" || accounts.contains(where: { $0.id == accID && $0.type == AccountType.iCloud.rawValue }) {
+            try? directProvider(for: accID).addFolder(name: clean)
             reloadState()
         } else {
             Task { [weak self, syncCoordinator] in
@@ -1168,8 +1203,8 @@ public final class AppStore: ObservableObject {
     }
 
     public func deleteFolderAsync(_ name: String, accountID: String = "local-default") async {
-        if accountID == "local-default" {
-            try? await localProvider.deleteFolder(name: name)
+        if accountID == "local-default" || accounts.contains(where: { $0.id == accountID && $0.type == AccountType.iCloud.rawValue }) {
+            try? await directProvider(for: accountID).deleteFolder(name: name)
             await reloadStateAsync()
         } else {
             if let provider = await syncCoordinator.provider(for: accountID) {
@@ -1179,8 +1214,8 @@ public final class AppStore: ObservableObject {
         }
     }
 
-    public func renameFolder(from oldName: String, to newName: String) {
-        try? localProvider.renameFolder(oldName: oldName, newName: newName)
+    public func renameFolder(from oldName: String, to newName: String, accountID: String = "local-default") {
+        try? directProvider(for: accountID).renameFolder(oldName: oldName, newName: newName)
         reloadState()
     }
 
@@ -1194,7 +1229,7 @@ public final class AppStore: ObservableObject {
         }
 
         let cleanTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
-        let accID = targetAccountID ?? (isAccountEnabled("local-default") ? "local-default" : accounts.first(where: { $0.isEnabled })?.id ?? "local-default")
+        let accID = targetAccountID ?? defaultSubscriptionAccountID
 
         if accID == "local-default" {
             let feed: Feed
@@ -1234,6 +1269,9 @@ public final class AppStore: ObservableObject {
             }
 
             await reloadStateAsync()
+            if provider.accountType == .iCloud {
+                await refresh(feedIDs: [addedFeed.id], origin: .subscriptionManagement)
+            }
             scheduleMissingIconProbe(delay: 0.5)
             return addedFeed
         }
@@ -1362,52 +1400,92 @@ public final class AppStore: ObservableObject {
         }
     }
 
-    public func reorderRootFeeds(orderedIDs: [UUID]) {
-        var currentFeeds = self.feeds
-        let idOrder = Dictionary(uniqueKeysWithValues: orderedIDs.enumerated().map { ($1, $0) })
-        currentFeeds.sort {
-            let rank1 = idOrder[$0.id, default: .max]
-            let rank2 = idOrder[$1.id, default: .max]
-            return rank1 < rank2
+    public func reorderRootFeeds(orderedIDs: [UUID], accountID: String = "local-default") {
+        guard Set(orderedIDs).count == orderedIDs.count else { return }
+        guard accountID == "local-default" || accounts.contains(where: { $0.id == accountID && $0.type == AccountType.iCloud.rawValue }) else { return }
+        if accountID == "local-default" {
+            var currentFeeds = self.feeds
+            let idOrder = Dictionary(uniqueKeysWithValues: orderedIDs.enumerated().map { ($1, $0) })
+            currentFeeds.sort {
+                let rank1 = idOrder[$0.id, default: .max]
+                let rank2 = idOrder[$1.id, default: .max]
+                return rank1 < rank2
+            }
+            self.feeds = currentFeeds
         }
-        self.feeds = currentFeeds
         try? libraryDatabase.write { db in
             for (idx, id) in orderedIDs.enumerated() {
-                try db.execute(sql: "UPDATE feeds SET sort_order = ? WHERE id = ?;", arguments: [idx, id.uuidString])
+                try db.execute(sql: "UPDATE feeds SET sort_order = ? WHERE id = ? AND account_id = ?;", arguments: [idx, id.uuidString, accountID])
             }
         }
+        reloadState()
     }
 
-    public func reorderRootFeeds(fromOffsets: IndexSet, toOffset: Int) {
-        var currentRootIDs = rootFeeds.map(\.id)
+    public func reorderRootFeeds(fromOffsets: IndexSet, toOffset: Int, accountID: String = "local-default") {
+        var currentRootIDs = rootFeeds(for: accountID).map(\.id)
+        guard !fromOffsets.isEmpty, fromOffsets.allSatisfy({ currentRootIDs.indices.contains($0) }),
+              (0...currentRootIDs.count).contains(toOffset) else { return }
         currentRootIDs.move(fromOffsets: fromOffsets, toOffset: toOffset)
-        reorderRootFeeds(orderedIDs: currentRootIDs)
+        reorderRootFeeds(orderedIDs: currentRootIDs, accountID: accountID)
     }
 
     public func feeds(in folder: String) -> [Feed] {
         feeds.filter { $0.folder == folder }
     }
 
-    public func reorderFeeds(in folder: String, fromOffsets: IndexSet, toOffset: Int) {
-        var folderFeedIDs = feeds(in: folder).map(\.id)
+    public func reorderFeeds(in folder: String, fromOffsets: IndexSet, toOffset: Int, accountID: String = "local-default") {
+        guard accountID == "local-default" || accounts.contains(where: { $0.id == accountID && $0.type == AccountType.iCloud.rawValue }) else { return }
+        var folderFeedIDs = feeds(in: folder, for: accountID).map(\.id)
+        guard !fromOffsets.isEmpty, fromOffsets.allSatisfy({ folderFeedIDs.indices.contains($0) }),
+              (0...folderFeedIDs.count).contains(toOffset) else { return }
         folderFeedIDs.move(fromOffsets: fromOffsets, toOffset: toOffset)
         try? libraryDatabase.write { db in
             for (idx, id) in folderFeedIDs.enumerated() {
-                try db.execute(sql: "UPDATE feeds SET sort_order = ? WHERE id = ?;", arguments: [idx, id.uuidString])
+                try db.execute(sql: "UPDATE feeds SET sort_order = ? WHERE id = ? AND account_id = ?;", arguments: [idx, id.uuidString, accountID])
             }
         }
         reloadState()
     }
 
-    public func reorderFolders(fromOffsets: IndexSet, toOffset: Int) {
-        var names = folders
+    public func reorderFolders(fromOffsets: IndexSet, toOffset: Int, accountID: String = "local-default") {
+        guard accountID == "local-default" || accounts.contains(where: { $0.id == accountID && $0.type == AccountType.iCloud.rawValue }) else { return }
+        var names = folders(for: accountID)
+        guard !fromOffsets.isEmpty, fromOffsets.allSatisfy({ names.indices.contains($0) }),
+              (0...names.count).contains(toOffset) else { return }
         names.move(fromOffsets: fromOffsets, toOffset: toOffset)
         try? libraryDatabase.write { db in
             for (idx, name) in names.enumerated() {
-                try db.execute(sql: "UPDATE folders SET sort_order = ? WHERE name = ? AND account_id = 'local-default';", arguments: [idx, name])
+                try db.execute(sql: "UPDATE folders SET sort_order = ? WHERE name = ? AND account_id = ?;", arguments: [idx, name, accountID])
             }
         }
         reloadState()
+    }
+
+    /// Dragging organizes one account; it never copies historical data between
+    /// accounts or creates a same-named folder in an unintended account.
+    @discardableResult
+    public func moveFeeds(_ feedIDs: Set<UUID>, toFolder folder: String?, accountID: String) -> Bool {
+        guard !feedIDs.isEmpty,
+              accountID == "local-default" || accounts.contains(where: { $0.id == accountID && $0.type == AccountType.iCloud.rawValue })
+        else { return false }
+        let owned = (try? libraryDatabase.read { db in
+            for id in feedIDs {
+                guard let feed = try FeedRecord.fetchOne(db, key: id.uuidString),
+                      feed.accountID == accountID, !feed.isDeleted else { return false }
+            }
+            return true
+        }) ?? false
+        guard owned else { return false }
+        do {
+            try directProvider(for: accountID).setFeedFolder(feedIDs: feedIDs, folderName: folder)
+            reloadState()
+            return true
+        } catch {
+            let message = I18N.localized("无法移动订阅，现有资料已保留。", englishFallback: "Unable to move feeds. Your existing data is retained.")
+            reportErrorMessage(message, module: .settings)
+            lastError = message
+            return false
+        }
     }
 
     public func setICloudSyncEnabled(_ enabled: Bool) {
@@ -1423,18 +1501,418 @@ public final class AppStore: ObservableObject {
     }
 
     public func syncICloud() async {
-        // 本 Goal 专注于 Local Account & SQLite Cutover
+        guard let account = accounts.first(where: { $0.type == AccountType.iCloud.rawValue && $0.isEnabled }) else { return }
+        await syncAccount(accountID: account.id)
     }
 
-    public func importOPML(_ data: Data) async {
-        let newFeedIDs = (try? await localProvider.importOPMLAsync(data)) ?? []
-        guard !newFeedIDs.isEmpty else { return }
+    public func iCloudAccountSnapshot(accountID: String) async throws -> ICloudAccountSyncSnapshot {
+        try await ICloudRecordRepository(database: libraryDatabase, accountID: accountID).accountSnapshot()
+    }
+
+    public func iCloudRecoveryReview(accountID: String) async throws -> ICloudRecoveryReview {
+        try await ICloudRecordRepository(database: libraryDatabase, accountID: accountID).recoveryReview()
+    }
+
+    public func iCloudArchiveLocalReview(accountID: String) async throws -> ICloudArchiveReview {
+        let coordinator = ICloudArchiveRecoveryCoordinator(database: libraryDatabase, accountID: accountID,
+            transport: ICloudArchiveCloudKitTransport(database: libraryDatabase, accountID: accountID))
+        return try await coordinator.snapshot().review
+    }
+
+    public func iCloudArchiveCatalog(accountID: String) async throws -> ICloudArchiveCatalog {
+        try await ICloudArchiveReadingRepository(database: libraryDatabase, accountID: accountID).catalog()
+    }
+
+    public func iCloudArchivePage(accountID: String, query: ICloudArchiveQuery) async throws -> ICloudArchivePage {
+        try await ICloudArchiveReadingRepository(database: libraryDatabase, accountID: accountID).page(query)
+    }
+
+    public func iCloudArchiveDetail(accountID: String, id: String, section: ICloudArchiveQuery.Section) async throws -> ICloudArchiveDetail {
+        try await ICloudArchiveReadingRepository(database: libraryDatabase, accountID: accountID).detail(id: id, section: section)
+    }
+
+    public func prepareICloudArchiveRecovery(accountID: String, connectionConfirmed: Bool) async throws -> ICloudArchiveRecoveryReview {
+        guard connectionConfirmed else { throw ICloudArchiveRecoveryError.connectionConfirmationRequired }
+        guard supportsICloudSync else { throw ICloudEngineError.notEntitled }
+        return try await prepareICloudArchiveRecoveryAfterEntitlementCheck(accountID: accountID, connectionConfirmed: connectionConfirmed)
+    }
+
+    func prepareICloudArchiveRecoveryAfterEntitlementCheck(accountID: String, connectionConfirmed: Bool) async throws -> ICloudArchiveRecoveryReview {
+        guard connectionConfirmed else { throw ICloudArchiveRecoveryError.connectionConfirmationRequired }
+        guard let account = accounts.first(where: { $0.id == accountID && $0.type == AccountType.iCloud.rawValue && $0.isEnabled && !$0.isArchived }) else {
+            throw ICloudArchiveRecoveryError.unavailableSource
+        }
+        if let previous = iCloudArchiveReviewRoute { await discardICloudArchiveRecoveryReview(id: previous.review.id) }
+        let provider = iCloudProvider(for: account)
+        let review = try await provider.prepareArchiveRecovery()
+        if Task.isCancelled {
+            await provider.discardArchiveRecoveryReview(id: review.id)
+            throw CancellationError()
+        }
+        iCloudArchiveReviewRoute = (review, accountID, provider)
+        return review
+    }
+
+    public func discardICloudArchiveRecoveryReview(id: UUID) async {
+        guard let route = iCloudArchiveReviewRoute, route.review.id == id else { return }
+        iCloudArchiveReviewRoute = nil
+        await route.provider.discardArchiveRecoveryReview(id: id)
+    }
+
+    public func executeICloudArchiveRecovery(reviewID: UUID, archiveConfirmed: Bool,
+        initializeEmptyCloudConfirmed: Bool = false) async throws -> ICloudArchiveRecoveryResult {
+        guard archiveConfirmed else { throw ICloudArchiveRecoveryError.archiveConfirmationRequired }
+        guard supportsICloudSync else { throw ICloudEngineError.notEntitled }
+        return try await executeICloudArchiveRecoveryAfterEntitlementCheck(reviewID: reviewID, archiveConfirmed: archiveConfirmed,
+                                                                         initializeEmptyCloudConfirmed: initializeEmptyCloudConfirmed)
+    }
+
+    /// Tests inject the new account's sync implementation before projection or
+    /// registration, so even an entitled test runner never contacts CloudKit.
+    func executeICloudArchiveRecoveryAfterEntitlementCheck(reviewID: UUID, archiveConfirmed: Bool,
+        initializeEmptyCloudConfirmed: Bool = false,
+        newSync: (any ICloudAccountSyncing)? = nil) async throws -> ICloudArchiveRecoveryResult {
+        guard archiveConfirmed else { throw ICloudArchiveRecoveryError.archiveConfirmationRequired }
+        guard let route = iCloudArchiveReviewRoute, route.review.id == reviewID,
+              accounts.contains(where: { $0.id == route.accountID && $0.isEnabled && !$0.isArchived }) else {
+            throw ICloudArchiveRecoveryError.staleReview
+        }
+        guard !route.review.needsCloudInitialization || initializeEmptyCloudConfirmed else {
+            throw ICloudArchiveRecoveryError.cloudInitializationConfirmationRequired
+        }
+        iCloudArchiveReviewRoute = nil
+        let account = try await route.provider.executeArchiveRecovery(reviewID: reviewID,
+            initializeEmptyCloudConfirmed: initializeEmptyCloudConfirmed)
+        // Committed: this result is retained through cancellation/network
+        // failures. Install the new provider before any callback reloads it.
+        accountRecoveryProjectionRevision &+= 1
+        iCloudProviders.removeValue(forKey: route.accountID)
+        let provider = iCloudProvider(for: account, sync: newSync)
+        activeAccountID = account.id
+        reloadState()
+        await syncCoordinator.unregisterProvider(accountID: route.accountID)
+        await route.provider.stop()
+        await syncCoordinator.registerProvider(provider)
+        var warning: String?
+        if Task.isCancelled { warning = ICloudSyncFailure.message(for: CancellationError()) }
+        else {
+            do {
+                let refreshed = try await provider.refresh(reason: .launch)
+                if case .failed(let message) = refreshed.status { warning = message }
+            }
+            catch { warning = ICloudSyncFailure.message(for: error) }
+        }
+        reloadState()
+        return .init(newAccountID: account.id, counts: route.review.counts, syncWarning: warning)
+    }
+
+    public func resumeOriginalICloudAccount(accountID: String, confirmed: Bool) async throws -> ICloudSameAccountResumeResult {
+        guard confirmed else { throw ICloudSameAccountResumeError.confirmationRequired }
+        guard supportsICloudSync else { throw ICloudEngineError.notEntitled }
+        return try await resumeOriginalICloudAccountAfterEntitlementCheck(accountID: accountID, confirmed: confirmed)
+    }
+
+    /// Isolated tests use a fake syncing implementation. The UI always enters
+    /// through the entitlement-guarded public API above.
+    func resumeOriginalICloudAccountAfterEntitlementCheck(accountID: String, confirmed: Bool) async throws -> ICloudSameAccountResumeResult {
+        guard confirmed else { throw ICloudSameAccountResumeError.confirmationRequired }
+        guard let account = accounts.first(where: { $0.id == accountID && $0.type == AccountType.iCloud.rawValue && $0.isEnabled }) else {
+            throw ICloudSameAccountResumeError.unavailableScope
+        }
+        return try await iCloudProvider(for: account).resumeOriginalAccount()
+    }
+
+    public func iCloudMigrationPreview(sourceAccountID: String) async throws -> ICloudMigrationPreview {
+        try await ICloudMigrationPreviewRepository(database: libraryDatabase).preview(sourceAccountID: sourceAccountID)
+    }
+
+    public var canPrepareICloudLocalCopy: Bool {
+        supportsICloudSync && accounts.contains { $0.type == AccountType.iCloud.rawValue && $0.isEnabled }
+    }
+
+    public func iCloudCopySourceCatalog(sourceAccountID: String) async throws -> ICloudCopySourceCatalog {
+        try await ICloudLocalCopyRepository(database: libraryDatabase).sourceCatalog(accountID: sourceAccountID)
+    }
+
+    public func prepareICloudLocalCopy(catalog: ICloudCopySourceCatalog, selection: ICloudCopySelection) async throws -> ICloudCopyReview {
+        guard supportsICloudSync else { throw ICloudEngineError.notEntitled }
+        return try await prepareICloudLocalCopyAfterEntitlementCheck(catalog: catalog, selection: selection)
+    }
+
+    /// Isolated integration tests inject a sync implementation that verifies its
+    /// fake root/context. Production UI must use the entitlement-guarded entry.
+    func prepareICloudLocalCopyAfterEntitlementCheck(catalog: ICloudCopySourceCatalog, selection: ICloudCopySelection) async throws -> ICloudCopyReview {
+        guard let account = accounts.first(where: { $0.type == AccountType.iCloud.rawValue && $0.isEnabled }) else {
+            throw ICloudLocalCopyError.unavailableTarget
+        }
+        let provider = iCloudProvider(for: account)
+        let review = try await provider.prepareLocalCopy(catalog: catalog, selection: selection)
+        if Task.isCancelled {
+            await provider.discardLocalCopyReview(id: review.id)
+            throw CancellationError()
+        }
+        iCloudCopyReviewRoute = (review.id, account.id, provider)
+        return review
+    }
+
+    public func discardICloudLocalCopyReview(id: UUID) async {
+        guard let route = iCloudCopyReviewRoute, route.id == id else { return }
+        iCloudCopyReviewRoute = nil
+        await route.provider.discardLocalCopyReview(id: id)
+    }
+
+    public func executeICloudLocalCopy(reviewID: UUID, privacyReviewed: Bool) async throws -> ICloudCopyResult {
+        guard privacyReviewed else { throw ICloudLocalCopyError.reviewRequired }
+        guard supportsICloudSync else { throw ICloudEngineError.notEntitled }
+        return try await executeICloudLocalCopyAfterEntitlementCheck(reviewID: reviewID, privacyReviewed: privacyReviewed)
+    }
+
+    func executeICloudLocalCopyAfterEntitlementCheck(reviewID: UUID, privacyReviewed: Bool) async throws -> ICloudCopyResult {
+        guard privacyReviewed else { throw ICloudLocalCopyError.reviewRequired }
+        guard let route = iCloudCopyReviewRoute, route.id == reviewID,
+              accounts.contains(where: { $0.id == route.accountID && $0.type == AccountType.iCloud.rawValue && $0.isEnabled }) else {
+            throw ICloudLocalCopyError.stalePlan
+        }
+        iCloudCopyReviewRoute = nil
+        return try await route.provider.executeLocalCopy(reviewID: reviewID)
+    }
+
+    public func iCloudCloudResidueReview(accountID: String) async throws -> ICloudCloudResidueReview {
+        let repository = ICloudRecordRepository(database: libraryDatabase, accountID: accountID)
+        return try await ICloudCloudResidueScanner(repository: repository,
+            transport: ICloudCloudResidueCloudKitTransport(repository: repository)).scan()
+    }
+
+    public func iCloudCloudInventory(accountID: String, reset: Bool) async throws -> ICloudCloudInventory {
+        guard let account = accounts.first(where: { $0.id == accountID }),
+              account.type == AccountType.iCloud.rawValue, account.isEnabled else {
+            throw ICloudRecordError.unavailableScope
+        }
+        return try await iCloudProvider(for: account).scanCloudInventory(reset: reset)
+    }
+
+    public func prepareICloudRetentionReview(accountID: String, reset: Bool = false) async throws -> ICloudRetentionReview {
+        guard supportsICloudSync else { throw ICloudEngineError.notEntitled }
+        return try await prepareICloudRetentionReviewAfterEntitlementCheck(accountID: accountID, reset: reset)
+    }
+
+    public func prepareICloudNewLibraryReview(accountID: String) async throws -> ICloudNewLibraryReview {
+        guard supportsICloudSync else { throw ICloudEngineError.notEntitled }
+        return try await retentionProvider(accountID: accountID).prepareNewLibraryReview()
+    }
+    public func discardICloudNewLibraryReview(accountID: String, id: UUID) async {
+        await iCloudProviders[accountID]?.discardNewLibraryReview(id: id)
+    }
+    public func executeICloudNewLibraryReview(accountID: String, reviewID: UUID, newLibraryConfirmed: Bool,
+                                             oldCloudRetentionConfirmed: Bool) async throws {
+        guard supportsICloudSync else { throw ICloudEngineError.notEntitled }
+        try await retentionProvider(accountID: accountID).executeNewLibraryReview(id: reviewID,
+            newLibraryConfirmed: newLibraryConfirmed, oldCloudRetentionConfirmed: oldCloudRetentionConfirmed)
+    }
+    func prepareICloudRetentionReviewAfterEntitlementCheck(accountID: String, reset: Bool = false) async throws -> ICloudRetentionReview {
+        try await retentionProvider(accountID: accountID).prepareRetentionReview(reset: reset)
+    }
+    public func discardICloudRetentionReview(accountID: String, id: UUID) async {
+        await iCloudProviders[accountID]?.discardRetentionReview(id: id)
+    }
+    public func startICloudRetention(accountID: String, reviewID: UUID, cleanupConfirmed: Bool,
+                                    clockMaintenanceConfirmed: Bool) async throws {
+        guard cleanupConfirmed else { throw ICloudRetentionReviewError.confirmationRequired }
+        guard clockMaintenanceConfirmed else { throw ICloudRetentionReviewError.clockMaintenanceRequired }
+        guard supportsICloudSync else { throw ICloudEngineError.notEntitled }
+        try await startICloudRetentionAfterEntitlementCheck(accountID: accountID, reviewID: reviewID,
+            cleanupConfirmed: cleanupConfirmed, clockMaintenanceConfirmed: clockMaintenanceConfirmed)
+    }
+    func startICloudRetentionAfterEntitlementCheck(accountID: String, reviewID: UUID, cleanupConfirmed: Bool,
+                                                  clockMaintenanceConfirmed: Bool) async throws {
+        try await retentionProvider(accountID: accountID).startReviewedRetention(id: reviewID,
+            cleanupConfirmed: cleanupConfirmed, clockMaintenanceConfirmed: clockMaintenanceConfirmed)
+    }
+    public func iCloudRetentionProgress(accountID: String) async throws -> ICloudRetentionProgress? {
+        try await retentionProvider(accountID: accountID).retentionProgress()
+    }
+    public func resumeICloudRetention(accountID: String, approvalID: String) async throws {
+        guard supportsICloudSync else { throw ICloudEngineError.notEntitled }
+        try await retentionProvider(accountID: accountID).resumeReviewedRetention(approvalID: approvalID)
+    }
+    public func stopICloudRetention(accountID: String, approvalID: String) async throws {
+        try await retentionProvider(accountID: accountID).stopReviewedRetention(approvalID: approvalID)
+    }
+    public func prepareICloudRetentionMaintenanceReview(accountID: String) async throws -> ICloudRetentionMaintenanceReview {
+        guard supportsICloudSync else { throw ICloudEngineError.notEntitled }
+        return try await retentionProvider(accountID: accountID).prepareRetentionMaintenanceReview()
+    }
+    public func discardICloudRetentionMaintenanceReview(accountID: String, id: UUID) async {
+        await iCloudProviders[accountID]?.discardRetentionMaintenanceReview(id: id)
+    }
+    public func enableICloudRetentionMaintenance(accountID: String, reviewID: UUID, cleanupConfirmed: Bool,
+                                                futureArticlesConfirmed: Bool, clockMaintenanceConfirmed: Bool) async throws {
+        guard cleanupConfirmed, futureArticlesConfirmed, clockMaintenanceConfirmed else {
+            throw ICloudRetentionMaintenanceError.confirmationRequired
+        }
+        guard supportsICloudSync else { throw ICloudEngineError.notEntitled }
+        try await retentionProvider(accountID: accountID).enableReviewedRetentionMaintenance(id: reviewID,
+            cleanupConfirmed: cleanupConfirmed, futureArticlesConfirmed: futureArticlesConfirmed,
+            clockMaintenanceConfirmed: clockMaintenanceConfirmed)
+    }
+    public func iCloudRetentionMaintenanceStatus(accountID: String) async throws -> ICloudRetentionMaintenanceStatus? {
+        try await retentionProvider(accountID: accountID).retentionMaintenanceStatus()
+    }
+    public func stopICloudRetentionMaintenance(accountID: String, approvalID: String) async throws {
+        try await retentionProvider(accountID: accountID).stopRetentionMaintenance(approvalID: approvalID)
+    }
+    public func resumeICloudRetentionMaintenance(accountID: String) async throws {
+        guard supportsICloudSync else { throw ICloudEngineError.notEntitled }
+        try await retentionProvider(accountID: accountID).resumeEnabledRetentionMaintenance()
+    }
+    public func reviewICloudRetentionOutcomes(accountID: String, approvalID: String) async throws -> ICloudRetentionOutcomeReviewResult {
+        guard supportsICloudSync else { throw ICloudEngineError.notEntitled }
+        return try await retentionProvider(accountID: accountID).reviewRetentionOutcomes(approvalID: approvalID)
+    }
+    private func retentionProvider(accountID: String) throws -> ICloudAccountProvider {
+        guard let account = accounts.first(where: { $0.id == accountID }),
+              account.type == AccountType.iCloud.rawValue, account.isEnabled, !account.isArchived else {
+            throw ICloudRecordError.unavailableScope
+        }
+        return iCloudProvider(for: account)
+    }
+
+    public func setICloudSyncUnreadContent(accountID: String, enabled: Bool) async throws {
+        try await ICloudRecordRepository(database: libraryDatabase, accountID: accountID).setSyncUnreadContentAsync(enabled)
+    }
+
+    public func iCloudErrorMessage(_ error: any Error) -> String {
+        ICloudSyncFailure.message(for: error)
+    }
+
+    private func iCloudProvider(for account: AccountRecord, sync: (any ICloudAccountSyncing)? = nil) -> ICloudAccountProvider {
+        if let cached = iCloudProviders[account.id] { return cached }
+        let provider = ICloudAccountProvider(
+            accountID: account.id, database: libraryDatabase, customFeedFetcher: directFeedFetcher,
+            sync: sync, onProgress: { [weak self] progress in
+                await self?.receiveRefreshProgress(progress, accountID: account.id)
+            }, onChange: { [weak self] in
+                await self?.reloadStateAsync()
+            }
+        )
+        iCloudProviders[account.id] = provider
+        return provider
+    }
+
+    private func scheduleICloudProviderRegistration(_ account: AccountRecord) {
+        if account.isArchived {
+            let previous = iCloudProviders.removeValue(forKey: account.id)
+            Task { [syncCoordinator] in
+                await syncCoordinator.unregisterProvider(accountID: account.id)
+                await previous?.stop()
+            }
+            return
+        }
+        let provider = iCloudProvider(for: account)
+        Task { [syncCoordinator] in
+            if account.isEnabled {
+                await syncCoordinator.registerProvider(provider)
+                await provider.startAutomaticSync()
+            } else {
+                await syncCoordinator.unregisterProvider(accountID: account.id)
+                await provider.stop()
+            }
+        }
+    }
+
+    public func resumeICloudAutomaticSync(fetchRemote: Bool = true) async {
+        for account in accounts where account.type == AccountType.iCloud.rawValue && account.isEnabled {
+            await iCloudProvider(for: account).resumeAutomaticSync(fetchRemote: fetchRemote)
+        }
+    }
+
+    /// The UI creates an empty independent account. It never copies local
+    /// history implicitly. System account validation precedes persistence.
+    @discardableResult
+    public func addICloudAccount() async throws -> AccountRecord {
+        let fingerprint = try await ICloudSyncEngineDriver.systemUserFingerprint()
+        return try await createICloudAccount(fingerprint: fingerprint, waitForInitialSync: false)
+    }
+
+    /// Injectable local integration boundary used by isolated tests. Networking
+    /// remains entitlement-guarded in the public account creation entry point.
+    @discardableResult
+    func createICloudAccount(
+        fingerprint: String, sync: (any ICloudAccountSyncing)? = nil,
+        waitForInitialSync: Bool = true
+    ) async throws -> AccountRecord {
+        let account = try await libraryDatabase.writeAsync { db in
+            guard try AccountRecord.filter(Column("type") == AccountType.iCloud.rawValue && Column("is_archived") == false).fetchOne(db) == nil else {
+                throw ICloudAccountError.alreadyExists
+            }
+            let now = Date().timeIntervalSince1970
+            let record = AccountRecord(id: "icloud-\(UUID().uuidString)", type: AccountType.iCloud.rawValue,
+                                      displayName: "iCloud", createdAt: now, updatedAt: now)
+            try record.save(db)
+            try db.execute(sql: """
+                INSERT INTO icloud_sync_scope(account_id, capture_enabled, user_fingerprint) VALUES (?, 1, ?);
+                """, arguments: [record.id, fingerprint])
+            try ICloudRecordSchema.ensureDeviceIdentity(accountID: record.id, in: db)
+            return record
+        }
+        let provider = iCloudProvider(for: account, sync: sync)
+        await syncCoordinator.registerProvider(provider)
+        activeAccountID = account.id
         await reloadStateAsync()
-        await refresh(feedIDs: newFeedIDs, origin: .subscriptionManagement)
+        if waitForInitialSync {
+            _ = try await provider.refresh(reason: .launch)
+            await reloadStateAsync()
+        } else {
+            accountRefreshProgress[account.id] = AccountRefreshProgress()
+            Task { [self] in
+                defer { accountRefreshProgress.removeValue(forKey: account.id) }
+                do { _ = try await provider.refresh(reason: .launch) }
+                catch {
+                    reportErrorMessage(ICloudSyncFailure.message(for: error), module: .settings)
+                }
+                await reloadStateAsync()
+            }
+        }
+        return account
     }
 
-    public func exportOPML() -> Data {
-        (try? localProvider.exportOPML()) ?? Data()
+    public func importOPML(_ data: Data, targetAccountID: String? = nil) async {
+        let accountID = targetAccountID ?? defaultSubscriptionAccountID
+        guard let account = accounts.first(where: { $0.id == accountID }),
+              AccountType(rawValue: account.type)?.fetchesRSSDirectly == true else {
+            let message = I18N.localized("请选择本地或 iCloud 账号导入 OPML。", englishFallback: "Choose a local or iCloud account to import OPML.")
+            reportErrorMessage(message, module: .settings)
+            lastError = message
+            return
+        }
+        do {
+            let newFeedIDs = try await directProvider(for: accountID).importOPMLAsync(data)
+            await reloadStateAsync()
+            if !newFeedIDs.isEmpty { await refresh(feedIDs: newFeedIDs, origin: .subscriptionManagement) }
+        } catch {
+            let message = I18N.localized("无法读取 OPML 文件，请检查文件格式。", englishFallback: "Unable to read the OPML file. Check its format.")
+            reportErrorMessage(message, module: .settings)
+            lastError = message
+        }
+    }
+
+    public func exportOPML(accountID: String? = nil) -> Data {
+        let target = accountID ?? defaultSubscriptionAccountID
+        return (try? libraryDatabase.read {
+            try localProvider.exportOPML(accountID: target, in: $0)
+        }) ?? OPMLService.export(feeds: [])
+    }
+
+    private var defaultSubscriptionAccountID: String {
+        if isAccountEnabled(activeAccountID) { return activeAccountID }
+        return isAccountEnabled("local-default") ? "local-default" : enabledAccounts.first?.id ?? "local-default"
+    }
+
+    private func directProvider(for accountID: String) -> LocalAccountProvider {
+        if let account = accounts.first(where: { $0.id == accountID && $0.type == AccountType.iCloud.rawValue }) {
+            return iCloudProvider(for: account).local
+        }
+        return localProvider
     }
 
     // MARK: - Feed Refreshing
@@ -1482,7 +1960,7 @@ public final class AppStore: ObservableObject {
         var shouldReloadLocalSnapshot = false
 
         // 1. 本地源抓取（指定局部源或全局本地源）
-        let targetFeeds: [Feed]
+        var targetFeeds: [Feed]
         if let feedIDs {
             targetFeeds = feeds.filter { feedIDs.contains($0.id) && !$0.isDeleted }
         } else if isAccountEnabled("local-default") {
@@ -1490,6 +1968,8 @@ public final class AppStore: ObservableObject {
         } else {
             targetFeeds = []
         }
+        var seenLocalFeedIDs = Set<UUID>()
+        targetFeeds = targetFeeds.filter { seenLocalFeedIDs.insert($0.id).inserted }
 
         var completedLocalFeeds = 0
         if !targetFeeds.isEmpty {
@@ -1557,6 +2037,19 @@ public final class AppStore: ObservableObject {
         }
 
         accountRefreshProgress.removeValue(forKey: "local-default")
+
+        if let feedIDs {
+            let selected = Set(feedIDs)
+            for account in accounts where account.isEnabled && account.type == AccountType.iCloud.rawValue {
+                let targets = Set(feeds(for: account.id).filter { selected.contains($0.id) }.map(\.id))
+                guard !targets.isEmpty else { continue }
+                do {
+                    let result = try await iCloudProvider(for: account).refresh(feedIDs: targets, reason: .manual)
+                    if case .failed(let message) = result.status { failures.append(message) }
+                } catch { failures.append(ICloudSyncFailure.message(for: error)) }
+                shouldReloadLocalSnapshot = true
+            }
+        }
 
         // 2. 全局刷新时，仅协调刷新所有远端账号（排除 local-default，杜绝本地重复刷新）
         if feedIDs == nil {
@@ -2038,10 +2531,12 @@ public final class AppStore: ObservableObject {
         }
 
         let accountType = try await accountRepository.fetchAccount(id: accountID).flatMap { AccountType(rawValue: $0.type) }
+        try await accountRepository.validateAccountRemoval(id: accountID)
         await syncCoordinator.unregisterProvider(accountID: accountID)
+        if let provider = iCloudProviders.removeValue(forKey: accountID) { await provider.stop() }
         if let scope = accountType?.readerVariant?.credentialScope {
             try? credentialStore.deleteCredentials(for: scope, accountID: accountID)
-        } else {
+        } else if accountType != .iCloud {
             try? credentialStore.deleteFreshRSSCredentials(accountID: accountID)
         }
         try await accountRepository.deleteAccount(id: accountID)
@@ -2057,8 +2552,14 @@ public final class AppStore: ObservableObject {
             _ = try await syncCoordinator.refreshAccount(accountID: accountID, reason: .manual)
             reloadState()
         } catch {
-            reportError(error, module: .settings)
-            lastError = error.localizedDescription
+            if accounts.first(where: { $0.id == accountID })?.type == AccountType.iCloud.rawValue {
+                let message = ICloudSyncFailure.message(for: error)
+                reportErrorMessage(message, module: .settings)
+                lastError = message
+            } else {
+                reportError(error, module: .settings)
+                lastError = error.localizedDescription
+            }
         }
     }
 

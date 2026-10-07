@@ -9,6 +9,7 @@ import GRDB
 public actor ReaderAccountProvider: AccountProvider {
     public let accountID: String
     public let variant: ReaderServiceVariant
+    public nonisolated var accountType: AccountType { variant == .miniflux ? .miniflux : .freshRSS }
     private let database: LibraryDatabase
     private let credentialStore: CredentialStore
     private let apiClient: ReaderAPIClient

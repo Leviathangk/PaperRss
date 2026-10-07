@@ -19,9 +19,11 @@ public struct ReaderDocument: Sendable, Equatable {
 
 /// 负责将准备好的文章内容、头部元数据、排版参数和安全策略组装为完整 Reader HTML 文档的单一权威渲染器。
 public enum ReaderDocumentRenderer: Sendable {
+    public enum ResourcePolicy: Sendable { case standard, localArchive }
 
     /// 严格的 CSP 安全策略，默认禁止外链脚本、嵌入对象和跨域连接，保证 WebKit 渲染环境安全沙箱化。
     public static let standardCSP = "default-src 'none'; img-src http: https: data: blob:; style-src 'unsafe-inline'; font-src 'none'; media-src http: https: data: blob:; object-src 'none'; frame-src 'none'; connect-src 'none'; script-src 'none'; base-uri 'none'; form-action 'none'"
+    public static let localArchiveCSP = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; connect-src 'none'; script-src 'none'; base-uri 'none'; form-action 'none'"
 
     public static func renderSignature(for article: PreparedArticle, documentIdentity: String) -> String {
         let safeBaseURL = article.baseURL.flatMap { url -> URL? in
@@ -46,7 +48,8 @@ public enum ReaderDocumentRenderer: Sendable {
         topInset: Double = 0,
         fontSize: Int = 16,
         extraStyleCSS: String? = nil,
-        rootClassName: String = ""
+        rootClassName: String = "",
+        resourcePolicy: ResourcePolicy = .standard
     ) -> ReaderDocument {
         let safeInset = max(0.0, topInset)
         let clampedFontSize = min(36, max(12, fontSize))
@@ -55,7 +58,9 @@ public enum ReaderDocumentRenderer: Sendable {
             guard let scheme = url.scheme?.lowercased(), ["https", "http"].contains(scheme) else { return nil }
             return url
         }
-        let renderSignature = renderSignature(for: article, documentIdentity: documentIdentity)
+        let csp = resourcePolicy == .localArchive ? localArchiveCSP : standardCSP
+        let signature = renderSignature(for: article, documentIdentity: documentIdentity)
+        let renderSignature = resourcePolicy == .localArchive ? [signature, csp].joined(separator: "|").stableDigest : signature
         let renderedBodyHTML = ArticleExtractor.insertingInlineTranslations(
             into: article.html,
             segments: translations,
@@ -67,7 +72,7 @@ public enum ReaderDocumentRenderer: Sendable {
         <html\(rootClassName.isEmpty ? "" : " class=\"\(htmlAttributeEscaped(rootClassName))\"")><head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <meta http-equiv="Content-Security-Policy" content="\(standardCSP)">
+        <meta http-equiv="Content-Security-Policy" content="\(csp)">
         <meta name="referrer" content="strict-origin-when-cross-origin">
         <style>:root { --paper-reader-top-inset: \(safeInset)px; --paper-font-size: \(clampedFontSize)px; }\(customCSS)</style>
         </head><body>\(headerHTML)\(renderedBodyHTML)</body></html>

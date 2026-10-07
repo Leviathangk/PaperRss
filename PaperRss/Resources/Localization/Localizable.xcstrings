@@ -1,6 +1,2998 @@
 {
   "sourceLanguage" : "zh-Hans",
   "strings" : {
+  "重新启用将沿用原授权、任务编号和等待时间。": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Re-enabling preserves the original consent, task identifiers and retry wait."
+        }
+      }
+    }
+  },
+  "本次确认包含以后符合条件的文章，请单独审阅这一范围。": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "This consent includes future eligible articles. Review that scope separately."
+        }
+      }
+    }
+  },
+  "本次复核确认 %lld 项，仍无法确认 %lld 项，另有 %lld 项待复核。": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "This review confirmed %lld operations, could not confirm %lld, and has %lld more to review."
+        }
+      }
+    }
+  },
+  "维护范围": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Maintenance Scope"
+        }
+      }
+    }
+  },
+  "本次有限任务": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "This Finite Task"
+        }
+      }
+    }
+  },
+  "持续自动维护": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Ongoing Automatic Maintenance"
+        }
+      }
+    }
+  },
+  "复核只读取原请求的云端证据；未能确认的原操作仍保留，不重复删除。": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Review only reads cloud evidence for original requests. Unconfirmed operations are retained, and deletions are not repeated."
+        }
+      }
+    }
+  },
+  "只读复核原请求结果": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Read-Only Review of Original Outcomes"
+        }
+      }
+    }
+  },
+  "持续检查当前 iCloud 资料范围，处理现在及以后符合 183 天规则的历史记录。每周共享额度最多 400 条，收藏、允许同步的未读正文和待同步修改受到保护；新设备可恢复的历史范围会缩短。本机文章和 AI 产物保留。": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Continuously check this iCloud library for current and future records eligible under the 183-day rule. The shared weekly limit is 400 records. Stars, permitted unread content and pending changes are protected. New devices can recover less history. Local articles and AI results are retained."
+        }
+      }
+    }
+  },
+  "核验服务器时间需要额外控制保存，不计入上述 400 条历史清理额度。": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Verifying server time requires extra control saves outside the 400-record history cleanup limit."
+        }
+      }
+    }
+  },
+  "关闭窗口会让已启用的维护继续运行。停用会阻止后续请求；已经提交的请求仍可能完成，原操作记录保留。": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Enabled maintenance continues after closing this window. Disabling it stops subsequent requests. Already submitted requests may still finish, and their operation records are retained."
+        }
+      }
+    }
+  },
+  "持续维护已启用": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Ongoing Maintenance Enabled"
+        }
+      }
+    }
+  },
+  "当前任务有结果需要复核，暂不生成下一批任务。请停用后读取原请求结果。": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "The current task has outcomes needing review, so no new batch is created. Disable maintenance before reading the original request outcomes."
+        }
+      }
+    }
+  },
+  "下次发现时间：": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Next discovery:"
+        }
+      }
+    }
+  },
+  "停用持续维护": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Disable Ongoing Maintenance"
+        }
+      }
+    }
+  },
+  "继续已启用的维护": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Continue Enabled Maintenance"
+        }
+      }
+    }
+  },
+  "我确认历史清理会影响其他设备能够恢复的资料范围。": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "I confirm that history cleanup affects what other devices can recover."
+        }
+      }
+    }
+  },
+  "我授权持续维护现在及以后的合格文章，直至主动停用。": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "I authorize ongoing maintenance of current and future eligible articles until I disable it."
+        }
+      }
+    }
+  },
+  "我单独允许核验服务器时间所需的额外控制保存。": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "I separately allow the extra control saves needed to verify server time."
+        }
+      }
+    }
+  },
+  "确认并启用持续维护": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Confirm and Enable Ongoing Maintenance"
+        }
+      }
+    }
+  },
+  "审阅持续维护授权": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Review Ongoing Maintenance Consent"
+        }
+      }
+    }
+  },
+  "请分别确认历史恢复影响、以后文章的持续维护和额外时间控制保存。": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Separately confirm the history recovery effects, ongoing maintenance of future articles and extra server-time control saves."
+        }
+      }
+    }
+  },
+  "持续维护授权已停用。请重新审阅并确认后继续，原任务记录仍保留。": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Ongoing maintenance consent is disabled. Review and confirm before continuing. Original task records are retained."
+        }
+      }
+    }
+  },
+  "持续维护预览已过期或账号范围已变化，请重新核验。": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "The ongoing maintenance review expired or the account scope changed. Verify again."
+        }
+      }
+    }
+  },
+  "现有授权或任务仍在使用此范围，请先停用维护并查看任务进度。": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Existing consent or a task is using this scope. Disable maintenance and review task progress first."
+        }
+      }
+    }
+  },
+    "保留旧资料并准备新云库" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep Old Data and Prepare a New Cloud Library"
+          }
+        }
+      }
+    },
+    "新云库从空资料开始，支持安全的云端历史清理。旧云资料区继续保留并占用 iCloud 空间；旧版本设备的同步将暂停，需要各自核验并恢复当前云库。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The replacement cloud library starts empty and supports safe cloud history cleanup. Previous cloud zones remain and use iCloud storage. Sync on devices using older versions will pause; each device must verify and restore the current library."
+          }
+        }
+      }
+    },
+    "完成云库准备后，先确认保留旧本机资料的只读归档，再接入新云库。订阅、收藏和正文通过另行选择与隐私审阅复制；本机 AI 产物留在归档。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "After preparing the cloud library, confirm retaining a read-only archive of old local data before adopting the new library. Subscriptions, stars and content are copied through a separate selection and privacy review. Local AI results stay in the archive."
+          }
+        }
+      }
+    },
+    "将继续之前已批准的新云库准备，沿用原操作及保留旧云资料的选择。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Continue the previously approved preparation using its original operation and choice to retain old cloud data."
+          }
+        }
+      }
+    },
+    "我确认建立空的新云库，并已了解其他设备的同步与历史恢复影响。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I approve creating an empty replacement cloud library and understand the sync and history recovery effects on other devices."
+          }
+        }
+      }
+    },
+    "我确认旧云资料继续保留，占用空间并需要另行处理。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I approve retaining old cloud data, its storage usage and handling it separately later."
+          }
+        }
+      }
+    },
+    "新云库已准备，旧本机范围保持保留。下一步核验只读归档与恢复。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The new cloud library is prepared and the old local scope is retained. Next, review the read-only archive and recovery."
+          }
+        }
+      }
+    },
+    "核验阶段只读取控制信息。正式开始后会更新云库控制记录并建立空资料区；停止或关闭窗口不会撤销已完成的云端步骤，可再次核验并继续原操作。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verification only reads control metadata. Starting updates cloud control records and creates empty zones. Stopping or closing this window does not undo completed cloud steps. Verify again to continue the original operation."
+          }
+        }
+      }
+    },
+    "核验归档与恢复…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Review Archive and Recovery…"
+          }
+        }
+      }
+    },
+    "继续已批准的准备" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Continue Approved Preparation"
+          }
+        }
+      }
+    },
+    "开始准备新云库" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prepare the New Cloud Library"
+          }
+        }
+      }
+    },
+    "核验当前云库" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verify the Current Cloud Library"
+          }
+        }
+      }
+    },
+    "停止" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stop"
+          }
+        }
+      }
+    },
+    "保留旧云资料并准备新云库…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep Old Cloud Data and Prepare a New Library…"
+          }
+        }
+      }
+    },
+    "请确认建立空的新云库及其他设备的同步影响。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confirm creating an empty replacement cloud library and its effect on syncing other devices."
+          }
+        }
+      }
+    },
+    "请确认旧云资料继续保留并占用 iCloud 空间。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confirm retaining the previous cloud data and its iCloud storage usage."
+          }
+        }
+      }
+    },
+    "新云库准备预览已过期或账号范围已变化，请重新核验。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The new-library review expired or the account scope changed. Verify again."
+          }
+        }
+      }
+    },
+    "当前范围不适用保留旧云资料的新云库准备，请先核对恢复进度。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This scope is not eligible for preparing a new library while retaining old cloud data. Review recovery progress first."
+          }
+        }
+      }
+    },
+    "当前本机范围：订阅 %lld，文章 %lld，收藏 %lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Current local scope: %lld subscriptions, %lld articles, %lld stars."
+          }
+        }
+      }
+    },
+    "云端历史清理" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud History Cleanup"
+          }
+        }
+      }
+    },
+    "先核验并审阅本次有限范围。收藏、允许同步的未读正文、最近修改和本机待发送资料受保护；本机文章、阅读状态与 AI 资料保留。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verify and review a finite scope first. Stars, eligible unread content, recent changes and pending local data are protected. Articles, reading states and AI data on this Mac are retained."
+          }
+        }
+      }
+    },
+    "历史状态保留 183 天，每周最多处理 400 条云端记录，包括清理组的保护保存。清理可能减少其他设备能恢复的历史；之后新增的文章需要另行审阅。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Historical states are retained for 183 days. At most 400 cloud records are processed per week, including protection saves in cleanup groups. Cleanup may reduce history recoverable on other devices. Articles added later need a separate review."
+          }
+        }
+      }
+    },
+    "我已审阅本次历史恢复与隐私影响，确认清理符合规则的云端记录。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I reviewed the history recovery and privacy effects and approve cleanup of eligible cloud records."
+          }
+        }
+      }
+    },
+    "为避免本机时钟影响周配额，任务还会保存时间校验控制记录。这些额外控制写入不计入上述 400 条历史清理组额度，不删除正文或状态。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The task also saves time-verification control records so the device clock cannot renew the weekly quota. These extra control writes are outside the 400-record cleanup-group budget and do not delete content or states."
+          }
+        }
+      }
+    },
+    "我单独同意本次任务的额外时间校验控制写入。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I separately approve extra time-verification control writes for this task."
+          }
+        }
+      }
+    },
+    "关闭窗口后，已批准任务仍可在后台进行。停止会保留具体阶段，已发出的云端请求需核验结果后才能继续。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Approved tasks can continue in the background after this window closes. Stopping retains their stage. The outcome of an already submitted cloud request must be verified before continuing."
+          }
+        }
+      }
+    },
+    "开始本次清理" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start This Cleanup"
+          }
+        }
+      }
+    },
+    "读取或继续核验候选" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read or Continue Verifying Candidates"
+          }
+        }
+      }
+    },
+    "停止本次任务" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stop This Task"
+          }
+        }
+      }
+    },
+    "继续已批准任务" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Continue the Approved Task"
+          }
+        }
+      }
+    },
+    "下次核验时间：" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Next verification:"
+          }
+        }
+      }
+    },
+    "部分请求的结果或证据需要复核；保留原操作记录，暂不能替换为新任务。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Some request outcomes or evidence need review. Their operation records are retained and cannot be replaced by a new task yet."
+          }
+        }
+      }
+    },
+    "审阅云端历史清理…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Review Cloud History Cleanup…"
+          }
+        }
+      }
+    },
+    "请先审阅并确认本次云端历史清理的影响。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Review and confirm the effects of this cloud history cleanup first."
+          }
+        }
+      }
+    },
+    "请单独确认用于核验服务器时间的额外控制写入。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Separately confirm the extra control writes used to verify server time."
+          }
+        }
+      }
+    },
+    "候选核验尚未完成或达到统计上限，请继续读取或缩小范围。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Candidate verification is incomplete or reached the scan limit. Continue reading or narrow the scope."
+          }
+        }
+      }
+    },
+    "本次没有可提交审阅的清理候选。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "There are no cleanup candidates to review in this scan."
+          }
+        }
+      }
+    },
+    "现有清理或恢复任务仍需处理，请先查看其进度。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An existing cleanup or recovery task still needs attention. Review its progress first."
+          }
+        }
+      }
+    },
+    "清理预览已过期或资料范围已变化，请重新核验。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The cleanup review expired or the data scope changed. Verify again."
+          }
+        }
+      }
+    },
+    "当前云库尚未满足安全清理条件，请先完成新云库准备及旧资料恢复核验。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The current cloud library is not ready for safe cleanup. Finish preparing the new library and reviewing recovery of old data first."
+          }
+        }
+      }
+    },
+    "清理任务或云端证据已变化，需要重新审阅。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The cleanup task or cloud evidence changed and needs another review."
+          }
+        }
+      }
+    },
+    "本次最多逐条核验 %lld 篇文章，仅处理执行时仍符合规则的记录。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verify up to %lld articles individually in this task. Only records still eligible at execution are processed."
+          }
+        }
+      }
+    },
+    "已完成 %lld 篇，已跳过 %lld 篇，待处理 %lld 篇，需要复核 %lld 篇。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Completed: %lld articles; skipped: %lld; remaining: %lld; needing review: %lld."
+          }
+        }
+      }
+    },
+    "本次已确认处理 %lld 条云端记录。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confirmed processed in this task: %lld cloud records."
+          }
+        }
+      }
+    },
+    "已建立新资料区，下一步按已确认的方案处理旧范围。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Replacement zones were created. Next is applying the approved plan for the previous scope."
+          }
+        }
+      }
+    },
+    "旧云端范围已保留，等待核对新云库是否准备好。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The previous cloud scope was preserved. The replacement library’s readiness awaits verification."
+          }
+        }
+      }
+    },
+    "当前 iCloud 未发现 PaperRss 云库或旧版资料。确认后将建立新的空云库；旧归档仍保留在本机。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No PaperRss cloud library or legacy data was found in the current iCloud account. Confirmation creates a new empty library; the old archive stays on this Mac."
+          }
+        }
+      }
+    },
+    "我确认建立新的空 iCloud 云库" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I confirm creating a new empty iCloud library"
+          }
+        }
+      }
+    },
+    "当前本机状态不适用此恢复方式。原账号同代次请使用“恢复原账号同步”；无法核实或资料区不完整的云库需要另行处理。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The current local state is not eligible for this recovery. For the original account and generation, use Resume the Original Account’s Sync. Unverified or incomplete cloud libraries need separate recovery."
+          }
+        }
+      }
+    },
+    "保留只读归档并建立新的空云库？" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep a read-only archive and create a new empty cloud library?"
+          }
+        }
+      }
+    },
+    "旧库将原位保留为只读归档，停止刷新与同步。随后在当前 iCloud 建立新的空云库并进行普通同步。旧资料需要另行选择复制，本次不删除资料。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The old library stays in place as a read-only archive with refresh and sync stopped. A new empty library is then created in the current iCloud account with normal sync. Copying old data requires a separate selection. No data is deleted by this action."
+          }
+        }
+      }
+    },
+    "请先确认建立新的空 iCloud 云库，旧归档资料不会自动带入。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confirm creating a new empty iCloud library first. Old archive data is not brought in automatically."
+          }
+        }
+      }
+    },
+    "阅读保留原状态，只加载已保存的正文和 AI 产物。外部图片与脚本不会加载；需要访问网站时可主动打开原文。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reading preserves the original states and only loads saved content and AI results. External images and scripts do not load. You can explicitly open the original page to visit its website."
+          }
+        }
+      }
+    },
+    "归档内容" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archive Content"
+          }
+        }
+      }
+    },
+    "文章" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Articles"
+          }
+        }
+      }
+    },
+    "AI 产物" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI Results"
+          }
+        }
+      }
+    },
+    "订阅与目录" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Feeds and Folders"
+          }
+        }
+      }
+    },
+    "全部文章" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All Articles"
+          }
+        }
+      }
+    },
+    "仅收藏" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Starred Only"
+          }
+        }
+      }
+    },
+    "搜索归档" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search Archive"
+          }
+        }
+      }
+    },
+    "此范围没有归档资料" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Archived Data in This Range"
+          }
+        }
+      }
+    },
+    "选择一份归档资料阅读" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select Archived Data to Read"
+          }
+        }
+      }
+    },
+    "本机 AI 产物" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Local AI Results"
+          }
+        }
+      }
+    },
+    "此文章没有已保存的正文" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Saved Content for This Article"
+          }
+        }
+      }
+    },
+    "正文" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Content"
+          }
+        }
+      }
+    },
+    "没有已保存的 AI 产物" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Saved AI Results"
+          }
+        }
+      }
+    },
+    "保存时尚未完成，保留当时的内容。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Incomplete when saved; the content is retained as it was."
+          }
+        }
+      }
+    },
+    "更多历史结果可在归档的“AI 产物”列表中查看。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "More historical results can be viewed in the archive’s AI Results list."
+          }
+        }
+      }
+    },
+    "摘要结果" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Summary Result"
+          }
+        }
+      }
+    },
+    "翻译结果" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Translation Result"
+          }
+        }
+      }
+    },
+    "双语翻译结果" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilingual Translation Result"
+          }
+        }
+      }
+    },
+    "阅读归档" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read Archive"
+          }
+        }
+      }
+    },
+    "选择归档资料复制到当前 iCloud…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select Archived Data to Copy to the Current iCloud Account…"
+          }
+        }
+      }
+    },
+    "复制归档资料到当前 iCloud" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy Archived Data to the Current iCloud Account"
+          }
+        }
+      }
+    },
+    "原只读归档保留。选中资料的新副本将进入当前 iCloud 账号并等待上传，旧归档不会重新启用。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The original read-only archive is retained. New copies of the selected data enter the current iCloud account and are queued for upload. The old archive is not reactivated."
+          }
+        }
+      }
+    },
+    "只读归档原位保留。复制只新增当前云库中没有的可靠资料，AI 产物和旧同步待办仍留在归档。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The read-only archive stays in place. Copying only adds reliable data absent from the current cloud library. AI results and old pending sync records stay in the archive."
+          }
+        }
+      }
+    },
+    "来源是只读本机归档，复制不会更改归档的文章或阅读状态。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The source is a read-only local archive. Copying does not change its articles or reading states."
+          }
+        }
+      }
+    },
+    "第 %lld 页" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Page %lld"
+          }
+        }
+      }
+    },
+    "保留归档并恢复当前云库" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep an Archive and Restore the Current Cloud Library"
+          }
+        }
+      }
+    },
+    "旧文章、收藏和本机 AI 结果将留在只读归档中，停止刷新与同步。当前系统 iCloud 账号使用独立的新同步范围。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Old articles, stars and local AI results stay in a read-only archive with refresh and sync stopped. The current system iCloud account uses a separate, new sync scope."
+          }
+        }
+      }
+    },
+    "打开本页只读取本机资料。连接核验只读取当前云库的控制信息和资料区；之后还需要单独确认归档。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opening this page only reads local data. Connection verification only reads the current cloud library’s control metadata and zones. Archival requires a separate confirmation afterward."
+          }
+        }
+      }
+    },
+    "当前云库已完成核验。确认时会再次核验；资料变化或超过十分钟需要重新核对。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The current cloud library has been verified. Confirmation verifies it again; changed data or a review older than ten minutes requires a new review."
+          }
+        }
+      }
+    },
+    "旧资料不会自动复制到当前 iCloud。若需要带回订阅或收藏，必须另行选择资料并审阅订阅地址、原始 GUID 和 RSS 正文中的私人信息。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Old data is not automatically copied to the current iCloud account. Bringing back feeds or stars requires a separate selection and review of private information in feed addresses, original GUIDs and RSS content."
+          }
+        }
+      }
+    },
+    "我已核对资料数量，确认保留旧库为只读归档" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I have reviewed the counts and want to keep the old library as a read-only archive"
+          }
+        }
+      }
+    },
+    "当前本机状态不适用此恢复方式。原账号同代次请使用“恢复原账号同步”；未初始化或资料区不完整的云库需要另行处理。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The current local state is not eligible for this recovery. For the original account and generation, use Resume the Original Account’s Sync. Uninitialized or incomplete cloud libraries need separate recovery."
+          }
+        }
+      }
+    },
+    "确认归档并恢复…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confirm Archive and Restore…"
+          }
+        }
+      }
+    },
+    "连接并核验当前云库…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connect and Verify the Current Cloud Library…"
+          }
+        }
+      }
+    },
+    "确认连接并核验" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confirm Connection and Verification"
+          }
+        }
+      }
+    },
+    "确认保留归档并恢复" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confirm Archive and Restore"
+          }
+        }
+      }
+    },
+    "正在核验当前云库…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verifying the current cloud library…"
+          }
+        }
+      }
+    },
+    "正在保留归档并恢复当前云库…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keeping the archive and restoring the current cloud library…"
+          }
+        }
+      }
+    },
+    "连接当前系统 iCloud 账号？" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connect to the current system iCloud account?"
+          }
+        }
+      }
+    },
+    "保留只读归档并恢复当前云库？" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep a read-only archive and restore the current cloud library?"
+          }
+        }
+      }
+    },
+    "将停止旧账号的自动同步，读取当前系统账号的云端控制信息和资料区进行核验。此步骤不会归档、复制或删除旧资料。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This stops automatic sync for the old account and reads the current system account’s cloud control metadata and zones for verification. This step does not archive, copy or delete old data."
+          }
+        }
+      }
+    },
+    "旧库将原位保留为只读归档，停止刷新与同步。随后在新范围恢复当前云库并进行普通同步；旧资料不会自动上传。此操作不删除本机或云端资料。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The old library stays in place as a read-only archive with refresh and sync stopped. The current cloud library is then restored in a new scope with normal sync; old data is not automatically uploaded. This does not delete local or cloud data."
+          }
+        }
+      }
+    },
+    "旧库已保留为只读归档，当前云库已建立独立同步范围。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The old library is retained as a read-only archive. The current cloud library has a separate sync scope."
+          }
+        }
+      }
+    },
+    "请在账号设置查看后续同步进度。恢复完成不代表云端资料已全部下载或待办已全部上传。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check subsequent sync progress in account settings. Recovery does not mean that all cloud data has downloaded or all pending changes have uploaded."
+          }
+        }
+      }
+    },
+    "保留归档并恢复当前云库…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep an Archive and Restore the Current Cloud Library…"
+          }
+        }
+      }
+    },
+    "只读本机归档" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read-only Local Archive"
+          }
+        }
+      }
+    },
+    "旧文章、收藏和本机 AI 产物已保留。归档停止刷新与同步，阅读状态保持原样。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Old articles, stars and local AI results are retained. Refresh and sync are stopped, and reading states are unchanged."
+          }
+        }
+      }
+    },
+    "请先确认连接当前 iCloud 账号进行恢复核验。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confirm connecting to the current iCloud account for recovery verification first."
+          }
+        }
+      }
+    },
+    "请先审阅并确认保留旧资料的只读本机归档。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Review and confirm retaining old data as a read-only local archive first."
+          }
+        }
+      }
+    },
+    "当前账号不适用归档恢复，请先核对本机恢复资料。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This account is not eligible for archive recovery. Review local recovery data first."
+          }
+        }
+      }
+    },
+    "当前云库尚未准备完成或无法核实，旧资料保持原状，请重新核验。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The current cloud library is not ready or could not be verified. Old data is unchanged. Verify again."
+          }
+        }
+      }
+    },
+    "归档预览已过期，或账号与资料已变化，请重新核验。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The archive review expired, or the account or data changed. Verify again."
+          }
+        }
+      }
+    },
+    "归档恢复核验达到安全限制，旧资料保持原状，请稍后重试。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archive recovery verification reached its safety limit. Old data is unchanged. Try again later."
+          }
+        }
+      }
+    },
+    "归档恢复仍在核验或等待确认，请先完成或关闭恢复窗口。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archive recovery is being verified or awaiting confirmation. Finish or close the recovery window first."
+          }
+        }
+      }
+    },
+    "这是只读本机归档，原资料与阅读状态保持保留。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This is a read-only local archive. Original data and reading states are retained."
+          }
+        }
+      }
+    },
+    "归档保留缺少身份的文章 %lld，本机 AI 产物 %lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The archive retains %lld articles with missing identities and %lld local AI artifacts."
+          }
+        }
+      }
+    },
+    "恢复原账号同步…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resume the Original Account’s Sync…"
+          }
+        }
+      }
+    },
+    "恢复原账号同步" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resume the Original Account’s Sync"
+          }
+        }
+      }
+    },
+    "请先在系统设置中切回原 iCloud 账号。此入口只恢复同一账号、同一云库代次的同步，本机缓存和待发送记录保留。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Switch back to the original iCloud account in System Settings first. This action resumes sync only for the same account and cloud library generation, retaining cached data and pending changes."
+          }
+        }
+      }
+    },
+    "打开本页只读取本机统计。确认后会连接原账号核验云端控制信息和资料区，再恢复普通同步，继续上传原账号中允许同步的待办资料。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opening this page only reads local counts. After confirmation, it connects to the original account to verify cloud control metadata and zones, then resumes normal sync and eligible pending uploads for that account."
+          }
+        }
+      }
+    },
+    "当前状态不适用原账号恢复。换账号、新代次、缺失资料区或重置的恢复方式需要另行确认。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The current state is not eligible for original-account recovery. Account changes, new generations, missing zones or resets need a separate recovery review."
+          }
+        }
+      }
+    },
+    "此版本尚未配置 iCloud 同步，仍可查看本机资料。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This build is not configured for iCloud sync. Local data can still be reviewed."
+          }
+        }
+      }
+    },
+    "正在核验原账号并尝试恢复同步…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verifying the original account and attempting to resume sync…"
+          }
+        }
+      }
+    },
+    "重新核对本机状态" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Review Local State Again"
+          }
+        }
+      }
+    },
+    "核验并恢复原账号同步…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verify and Resume the Original Account’s Sync…"
+          }
+        }
+      }
+    },
+    "恢复原账号的同步？" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resume sync for the original account?"
+          }
+        }
+      }
+    },
+    "确认核验并恢复" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confirm Verification and Resume"
+          }
+        }
+      }
+    },
+    "只有系统账号、云库代次和资料区核验一致时才解除暂停。恢复后，原账号的待发送资料将继续同步到该账号的私有云库。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync is unpaused only when the system account, cloud generation and zones are verified as matching. Pending data for the original account then continues syncing to that account’s private cloud library."
+          }
+        }
+      }
+    },
+    "同步状态仍需核对，本机资料已保留。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync status still needs review. Local data is retained."
+          }
+        }
+      }
+    },
+    "原账号核验已通过，已请求恢复普通同步。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The original account was verified and normal sync has been requested."
+          }
+        }
+      }
+    },
+    "请在账号设置查看后续进度。恢复请求完成不代表所有待办已保存到云端。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check further progress in account settings. A completed resume request does not mean all pending data is saved in the cloud."
+          }
+        }
+      }
+    },
+    "请先确认恢复原 iCloud 账号的同步。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confirm resuming sync for the original iCloud account first."
+          }
+        }
+      }
+    },
+    "此入口只恢复因系统账号变化而暂停的原账号同步，请先核对恢复资料。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This action only resumes the original account paused by a system account change. Review recovery data first."
+          }
+        }
+      }
+    },
+    "原云库的控制信息或资料区无法核实，同步保持暂停。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The original cloud library’s control metadata or zones could not be verified. Sync remains paused."
+          }
+        }
+      }
+    },
+    "账号恢复或资料复制仍在处理，请稍后再试。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Account recovery or a data copy is still running. Try again shortly."
+          }
+        }
+      }
+    },
+    "账号恢复核验达到安全限制，同步保持暂停，请稍后重新核验。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Account recovery verification reached its safety limit. Sync remains paused. Verify again later."
+          }
+        }
+      }
+    },
+    "本机保留订阅 %lld，目录 %lld，文章 %lld，收藏 %lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retained on this Mac: subscriptions %lld; folders %lld; articles %lld; starred articles %lld."
+          }
+        }
+      }
+    },
+    "复制本地资料到 iCloud" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy Local Data to iCloud"
+          }
+        }
+      }
+    },
+    "确认复制选中的资料？" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy the selected data?"
+          }
+        }
+      }
+    },
+    "确认复制" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confirm Copy"
+          }
+        }
+      }
+    },
+    "原本地库保留。新增资料将进入本机 iCloud 账号并等待上传到当前系统 iCloud 用户的私有云库。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The original local library is retained. New data enters the iCloud account on this Mac and is queued for the current system iCloud user’s private cloud library."
+          }
+        }
+      }
+    },
+    "先选择资料，再核验目标云库并预览。确认前不会复制本地资料；核验会刷新 iCloud 账号现有的云端资料。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose data, then verify the target cloud library and preview. Local data is not copied before confirmation. Verification refreshes the iCloud account’s existing cloud data."
+          }
+        }
+      }
+    },
+    "原本地库保留。目标已有订阅及其文章、同名目录和删除标记不覆盖；缺失或重复身份的文章及含凭据的订阅留在本地。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The original library is retained. Existing target subscriptions and their articles, same-name folders and deletion markers are preserved. Articles with missing or duplicate identities and subscriptions containing credentials stay local."
+          }
+        }
+      }
+    },
+    "需要可用的 iCloud 同步版本及已启用的 iCloud 账号，才能准备复制。仍可在此审阅本地资料。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preparing a copy requires a build that supports iCloud sync and an enabled iCloud account. Local data can still be reviewed here."
+          }
+        }
+      }
+    },
+    "本地账号已停用，仍可复制已审阅的保留资料。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The local account is disabled. Reviewed retained data can still be copied."
+          }
+        }
+      }
+    },
+    "选择全部可用资料" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select All Available"
+          }
+        }
+      }
+    },
+    "每次最多选择 500 个订阅和目录。带查询参数或片段的链接需逐项审阅；检查不能识别所有路径令牌或私人信息。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select up to 500 subscriptions and folders per copy. Links with query parameters or fragments require individual review. Checks cannot identify every private path token or sensitive detail."
+          }
+        }
+      }
+    },
+    "同时复制身份可靠且唯一的文章与阅读状态" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Also Copy Articles with Reliable Unique Identities and Their Reading States"
+          }
+        }
+      }
+    },
+    "收藏的 RSS 正文会随可靠文章复制；未读正文遵循目标 iCloud 账号已有设置。AI 结果、模型配置和网页提取缓存不复制。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Starred RSS bodies accompany reliable articles. Unread bodies follow the target iCloud account’s existing setting. AI results, model settings and extracted webpage caches are not copied."
+          }
+        }
+      }
+    },
+    "目录" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Folders"
+          }
+        }
+      }
+    },
+    "名称重复，保留本地" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Duplicate name; stays local"
+          }
+        }
+      }
+    },
+    "审阅订阅与网站链接" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Review Subscription and Website Links"
+          }
+        }
+      }
+    },
+    "我已确认这些链接不含凭据或私人令牌" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I Confirm These Links Contain No Credentials or Private Tokens"
+          }
+        }
+      }
+    },
+    "复制范围已核验" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy Range Verified"
+          }
+        }
+      }
+    },
+    "确认时会再次核验账号、云端代次与资料。资料改变或预览超过十分钟需重新选择并预览。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confirmation rechecks the account, cloud generation and data. Changes or a preview older than ten minutes require a new selection and preview."
+          }
+        }
+      }
+    },
+    "订阅与网站链接、原始条目标识及允许复制的 RSS 正文可能包含私人信息。请审阅选中的资料；本流程不检查全部正文或标识中的秘密。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Subscription and website links, original item identities and eligible RSS bodies may contain private information. Review the selected data; this flow does not detect every secret in content or identities."
+          }
+        }
+      }
+    },
+    "我已审阅选中的资料，并同意按此范围同步到我的 iCloud 私有云库" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I Have Reviewed the Selected Data and Agree to Sync This Range to My Private iCloud Library"
+          }
+        }
+      }
+    },
+    "此范围没有可新增的资料，请重新选择。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This range has no new data to copy. Choose another range."
+          }
+        }
+      }
+    },
+    "本机复制已完成" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Local Copy Complete"
+          }
+        }
+      }
+    },
+    "资料已进入本机 iCloud 账号并保留待发送记录。请在 iCloud 账号设置查看同步进度；本机复制完成不代表云端已全部保存。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Data is now in the iCloud account on this Mac with durable pending changes. Check sync progress in iCloud account settings. Local copy completion does not mean all data is saved in the cloud."
+          }
+        }
+      }
+    },
+    "重新选择" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose Again"
+          }
+        }
+      }
+    },
+    "复制到 iCloud 账号…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy to iCloud Account…"
+          }
+        }
+      }
+    },
+    "核验云库并预览" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verify Cloud Library and Preview"
+          }
+        }
+      }
+    },
+    "正在恢复并核验目标云库…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restoring and Verifying the Target Cloud Library…"
+          }
+        }
+      }
+    },
+    "正在复核并提交本机复制…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rechecking and Committing the Local Copy…"
+          }
+        }
+      }
+    },
+    "链接包含凭据，保留本地" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Link contains credentials; stays local"
+          }
+        }
+      }
+    },
+    "订阅或网站链接无法核实，保留本地" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Subscription or website link cannot be verified; stays local"
+          }
+        }
+      }
+    },
+    "订阅身份重复，保留本地" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Duplicate subscription identity; stays local"
+          }
+        }
+      }
+    },
+    "选中的本地资料不可用，请重新选择。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The selected local data is unavailable. Choose it again."
+          }
+        }
+      }
+    },
+    "目标 iCloud 账号尚未完成恢复或已停用，请先完成同步。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The target iCloud account is disabled or has not finished recovery. Finish syncing first."
+          }
+        }
+      }
+    },
+    "目标 iCloud 资料需要复核，暂不能复制。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The target iCloud data needs review before copying."
+          }
+        }
+      }
+    },
+    "资料或账号已变化，或预览已过期，请重新选择并预览。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The data or account changed, or the preview expired. Choose the data and preview again."
+          }
+        }
+      }
+    },
+    "选择的资料过多，请缩小范围后重新预览。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Too much data was selected. Choose a smaller range and preview again."
+          }
+        }
+      }
+    },
+    "资料复制操作仍在处理，请稍后再试。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A data copy operation is still running. Try again shortly."
+          }
+        }
+      }
+    },
+    "请先审阅选中的资料及隐私范围。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Review the selected data and its privacy scope first."
+          }
+        }
+      }
+    },
+    "选择并复制到 iCloud…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select and Copy to iCloud…"
+          }
+        }
+      }
+    },
+    "已选择订阅 %lld，目录 %lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Selected subscriptions: %lld; folders: %lld."
+          }
+        }
+      }
+    },
+    "新增订阅 %lld，目录 %lld，目录关系 %lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New subscriptions: %lld; folders: %lld; folder relationships: %lld."
+          }
+        }
+      }
+    },
+    "可靠文章与状态 %lld，RSS 正文缓存 %lld，超限正文保留本地 %lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reliable articles and states: %lld; RSS body caches: %lld; oversized bodies kept local: %lld."
+          }
+        }
+      }
+    },
+    "跳过订阅 %lld，目录 %lld，文章 %lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skipped subscriptions: %lld; folders: %lld; articles: %lld."
+          }
+        }
+      }
+    },
+    "本地资料同步预览" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Local Data Sync Preview"
+          }
+        }
+      }
+    },
+    "只检查本地账号与 iCloud 账号在本机的资料。不连接网络，不复制、上传、合并或删除资料。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reviews the local account and the iCloud account’s data cached on this Mac. It does not connect to the network or copy, upload, merge or delete data."
+          }
+        }
+      }
+    },
+    "统计时间" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Counted at"
+          }
+        }
+      }
+    },
+    "当前本地资料" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Current Local Data"
+          }
+        }
+      }
+    },
+    "本地账号已停用，仍可查看保留的资料。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The local account is disabled. Retained data is still available for review."
+          }
+        }
+      }
+    },
+    "统计只包括这个本地账号的未删除订阅和目录。复制范围与目录合并方式仍需确认。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Counts include this local account’s active subscriptions and folders. Copy scope and folder merging need review."
+          }
+        }
+      }
+    },
+    "历史资料身份" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Historical Data Identities"
+          }
+        }
+      }
+    },
+    "地址格式不同也可能对应同一订阅。重复、缺失身份和缺少状态的资料暂不作可对应判断；不按标题或本地编号猜测身份。正文数量不代表每篇都符合格式和大小限制。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Different URL spellings may identify the same subscription. Duplicates, missing identities and missing states are excluded from stable identity counts. Titles and local IDs are not used to guess identities. Body counts do not guarantee format or size eligibility."
+          }
+        }
+      }
+    },
+    "完整订阅地址、原始条目身份和允许同步的 RSS 正文可能携带私人信息。复制前需确认处理方式；预览不显示完整地址，不移除参数，也不改写订阅。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Full subscription URLs, original item identities and eligible RSS content may contain private information. Review their handling before copying. This preview does not show full URLs, remove parameters or rewrite subscriptions."
+          }
+        }
+      }
+    },
+    "目标账号的本机观察" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Local Observations of the Target Account"
+          }
+        }
+      }
+    },
+    "这些计数来自本机条目、待发送更改和已接收缓存，可能含新旧状态分歧；不代表云端已完整恢复或为空。涉及目标删除标记的订阅不能直接恢复，复制和冲突处理仍待确认。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Counts come from local items, pending changes and received cache and may include differing old and new states. They do not prove complete cloud recovery or an empty cloud library. Subscriptions with target deletion markers cannot be restored directly. Copying and conflict handling need review."
+          }
+        }
+      }
+    },
+    "本机尚未添加 iCloud 账号。预览不会自动创建账号。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No iCloud account has been added on this Mac. The preview does not create one."
+          }
+        }
+      }
+    },
+    "本机 iCloud 账号已停用，本次仅查看其本机缓存。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The iCloud account is disabled. This review only inspects its local cache."
+          }
+        }
+      }
+    },
+    "本机 iCloud 账号已暂停或保留重置确认，需要先确认恢复方式。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The iCloud account is paused or retains reset approval. Recovery needs review first."
+          }
+        }
+      }
+    },
+    "本机尚未确认 iCloud 同步绑定，云端资料情况仍需核实。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This Mac has not confirmed its iCloud sync binding. Cloud data still needs verification."
+          }
+        }
+      }
+    },
+    "本机已有 iCloud 同步绑定，云端恢复情况仍需核实。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An iCloud sync binding exists locally. Cloud recovery still needs verification."
+          }
+        }
+      }
+    },
+    "查看 iCloud 复制预览" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preview Copy to iCloud"
+          }
+        }
+      }
+    },
+    "本地资料预览暂不可用，请检查本地账号。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Local data preview is unavailable. Check the local account."
+          }
+        }
+      }
+    },
+    "目录关系 %lld，多目录订阅 %lld，重复目录名称 %lld 组。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Folder relationships: %lld, subscriptions in multiple folders: %lld, duplicate folder name groups: %lld."
+          }
+        }
+      }
+    },
+    "身份稳定且无本机重复的文章 %lld，其中收藏 %lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Articles with stable, locally unique identities: %lld, including %lld starred."
+          }
+        }
+      }
+    },
+    "带 RSS 正文缓存且身份可对应的收藏：%lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Starred articles with cached RSS bodies and matching identities: %lld."
+          }
+        }
+      }
+    },
+    "重复订阅身份 %lld 组，重复文章身份 %lld 组，缺少阅读状态 %lld 篇。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Duplicate subscription identity groups: %lld, duplicate article identity groups: %lld, articles without reading states: %lld."
+          }
+        }
+      }
+    },
+    "目标本机订阅 %lld，已观察到的重叠订阅 %lld，涉及删除标记 %lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Target subscriptions on this Mac: %lld, observed overlapping subscriptions: %lld, subscriptions with deletion markers: %lld."
+          }
+        }
+      }
+    },
+    "重叠目录名称 %lld，重叠文章身份 %lld，已读分歧 %lld，收藏分歧 %lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Overlapping folder names: %lld, overlapping article identities: %lld, read-state disagreements: %lld, star-state disagreements: %lld."
+          }
+        }
+      }
+    },
+    "目标本机缓存中有 %lld 条资料需要核实。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Target local cache entries requiring review: %lld."
+          }
+        }
+      }
+    },
+    "当前确认代次的资料区不完整，恢复方式需要确认。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zones for the confirmed generation are incomplete. Recovery needs review."
+          }
+        }
+      }
+    },
+    "复核旧云资料" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Review Older Cloud Data"
+          }
+        }
+      }
+    },
+    "旧云资料复核" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Older Cloud Data Review"
+          }
+        }
+      }
+    },
+    "只读取 iCloud 资料区和控制信息，检查旧版快照是否存在；不下载旧正文，不恢复同步或删除资料。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reads iCloud zone and control metadata and checks whether a legacy snapshot exists. It does not download old bodies, resume sync or delete data."
+          }
+        }
+      }
+    },
+    "本次观察到旧版全库快照，尚未处理其内容。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A legacy whole-library snapshot was observed. Its contents have not been processed."
+          }
+        }
+      }
+    },
+    "本次未观察到已知的旧版全库快照。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No known legacy whole-library snapshot was observed."
+          }
+        }
+      }
+    },
+    "复核期间云端信息发生变化，结果不完整。数量包含任一次观察到的资料区，请稍后重新复核。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud metadata changed during review. Results are incomplete. Counts include zones seen in either observation; review again later."
+          }
+        }
+      }
+    },
+    "复核达到时间或数量上限，结果不完整。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The review reached its time or count limit. Results are incomplete."
+          }
+        }
+      }
+    },
+    "复核结果不完整，不能据此确认旧资料已清除。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The review is incomplete and cannot confirm that older data was cleared."
+          }
+        }
+      }
+    },
+    "复核时间" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reviewed at"
+          }
+        }
+      }
+    },
+    "资料区数量不是文章或正文数量。即使两次观察一致，其它设备或迟到请求仍可能留下旧副本；本页不能证明全部云端资料已擦除。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zone counts are not article or body counts. Even matching observations cannot rule out older copies from other devices or delayed requests. This page cannot prove complete cloud erasure."
+          }
+        }
+      }
+    },
+    "正在复核云端元信息…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reviewing cloud metadata…"
+          }
+        }
+      }
+    },
+    "重新复核" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Review Again"
+          }
+        }
+      }
+    },
+    "本机尚未确认云库代次，需要先确认兼容或恢复方式。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This Mac has not confirmed a cloud library generation. Compatibility or recovery needs review."
+          }
+        }
+      }
+    },
+    "云端控制信息与本机确认的代次一致。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud control metadata matches the generation confirmed on this Mac."
+          }
+        }
+      }
+    },
+    "云端控制信息显示正在重置，恢复方式需要确认。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud control metadata indicates a reset in progress. Recovery needs review."
+          }
+        }
+      }
+    },
+    "未观察到云端控制信息，本机资料仍保留。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud control metadata was not observed. Local data is retained."
+          }
+        }
+      }
+    },
+    "云端控制信息无法核实，需要先确认兼容方式。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud control metadata could not be verified. Compatibility needs review."
+          }
+        }
+      }
+    },
+    "云端控制信息与本机确认的代次不同，需要先确认恢复方式。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud control metadata differs from the generation confirmed on this Mac. Recovery needs review."
+          }
+        }
+      }
+    },
+    "两次读取的云端控制信息不同，暂不作完成判断。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The two cloud control observations differ. Completion cannot be determined."
+          }
+        }
+      }
+    },
+    "本机确认代次的资料区 %lld，其它代次资料区 %lld，旧版资料区 %lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zones for the locally confirmed generation: %lld, other generations: %lld, legacy layout: %lld."
+          }
+        }
+      }
+    },
+    "格式无法核实的 PaperRss 资料区：%lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PaperRss zones with unverifiable formats: %lld."
+          }
+        }
+      }
+    },
+    "查看恢复资料" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Review Recovery Data"
+          }
+        }
+      }
+    },
+    "恢复资料预览" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recovery Data Review"
+          }
+        }
+      }
+    },
+    "本页只统计本机资料；不连接 iCloud，不复制、上传或删除资料。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This page only reviews data on this Mac. It does not connect to iCloud or copy, upload or delete data."
+          }
+        }
+      }
+    },
+    "正在读取本机资料…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reading local data…"
+          }
+        }
+      }
+    },
+    "本机保留的资料" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Data Retained on This Mac"
+          }
+        }
+      }
+    },
+    "此账号已停用，仍可查看本机资料。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This account is disabled. Its local data is still available for review."
+          }
+        }
+      }
+    },
+    "此账号尚未启用同步记录，预览不会自动开启同步。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync recording is inactive for this account. Reviewing data does not activate sync."
+          }
+        }
+      }
+    },
+    "统计只包括该账号未删除订阅下的资料。正文数量不代表每篇文章都能同步；缺少原始身份的历史文章仍留在本机，恢复方式待确认。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Counts include data under this account’s active subscriptions. Body counts do not guarantee sync eligibility. Historical articles without original identities stay on this Mac pending recovery review."
+          }
+        }
+      }
+    },
+    "订阅链接检查" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Subscription Link Review"
+          }
+        }
+      }
+    },
+    "同一链接可能计入多类。查询参数不一定是凭据，路径中也可能包含私人令牌；此检查不能识别所有敏感内容。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A link can appear in several categories. Query parameters may be harmless, while paths may contain private tokens. This check cannot identify all sensitive content."
+          }
+        }
+      }
+    },
+    "订阅地址和允许同步的 RSS 内容可能携带私人信息，启用前请确认。预览不显示完整链接，也不移除参数或改写地址。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Subscription URLs and eligible RSS content may contain private information. Review them before enabling sync. This preview does not display full links, remove parameters or rewrite URLs."
+          }
+        }
+      }
+    },
+    "本机记录的重置进度" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset Progress Recorded on This Mac"
+          }
+        }
+      }
+    },
+    "此处显示本机最后记录的阶段，云端实际进度仍需核对。新云库准备好不表示全部旧云资料已擦除，也不会自动上传旧本机资料。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This is the last locally recorded stage; actual cloud progress needs verification. A ready replacement library does not mean all older cloud data was erased or that old local data will upload automatically."
+          }
+        }
+      }
+    },
+    "历史资料复制、旧缓存处理、云端删除和隐私说明仍待确认。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Historical data copying, old cache handling, cloud deletion and privacy disclosures await review."
+          }
+        }
+      }
+    },
+    "本机没有已确认的重置操作。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No approved reset operation is recorded on this Mac."
+          }
+        }
+      }
+    },
+    "已保存重置确认，等待核对云端进度。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset approval is saved. Cloud progress awaits verification."
+          }
+        }
+      }
+    },
+    "已发布重置信息，下一步建立新订阅资料区。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset information was published. Next is creating the replacement subscription zone."
+          }
+        }
+      }
+    },
+    "已建立新订阅资料区，下一步建立新文章资料区。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The replacement subscription zone was created. Next is creating the replacement article zone."
+          }
+        }
+      }
+    },
+    "已建立新资料区，下一步清除当前旧订阅资料区。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Replacement zones were created. Next is clearing the previous subscription zone."
+          }
+        }
+      }
+    },
+    "已清除当前旧订阅资料区，下一步清除对应旧文章资料区。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The previous subscription zone was cleared. Next is clearing its article zone."
+          }
+        }
+      }
+    },
+    "已清除当前旧资料区，等待核对新云库是否准备好。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The previous zones were cleared. The replacement library’s readiness awaits verification."
+          }
+        }
+      }
+    },
+    "新云库已准备好，旧本机资料的恢复方式仍待确认。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The replacement cloud library is ready. Recovery of old local data awaits review."
+          }
+        }
+      }
+    },
+    "恢复记录无法核实，需要确认后再继续。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The recovery record could not be verified. Review is required before continuing."
+          }
+        }
+      }
+    },
+    "订阅 %lld，目录 %lld，本机文章 %lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Subscriptions: %lld, folders: %lld, local articles: %lld."
+          }
+        }
+      }
+    },
+    "已读文章 %lld，收藏文章 %lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read articles: %lld, starred articles: %lld."
+          }
+        }
+      }
+    },
+    "带有 RSS 正文的文章：%lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Articles with RSS bodies: %lld."
+          }
+        }
+      }
+    },
+    "缺少原始身份的文章：%lld，其中收藏 %lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Articles without original identities: %lld, including %lld starred."
+          }
+        }
+      }
+    },
+    "需要检查的订阅链接：%lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Subscription links requiring review: %lld."
+          }
+        }
+      }
+    },
+    "包含账号信息 %lld，查询参数 %lld，片段 %lld，无法核实 %lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "With account information: %lld, query parameters: %lld, fragments: %lld, unverifiable: %lld."
+          }
+        }
+      }
+    },
+    "另有 %lld 个旧资料区，尚未统计其内容。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "There are also %lld older data zones. Their contents have not been counted."
+          }
+        }
+      }
+    },
+    "当前云库以外的记录：%lld，未应用到本机资料。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Records outside the current cloud library: %lld. These were not applied to local data."
+          }
+        }
+      }
+    },
+    "云端资料已经重置，同步已暂停。请确认恢复方式，本机更改已保留。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The cloud library has been reset. Sync is paused. Review recovery options; your local changes are retained."
+          }
+        }
+      }
+    },
+    "云端恢复信息缺失，同步已暂停，本机资料已保留。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud recovery information is missing. Sync is paused and your local data is retained."
+          }
+        }
+      }
+    },
+    "云端资料正在重置，同步已暂停，本机资料已保留。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The cloud library is being reset. Sync is paused and your local data is retained."
+          }
+        }
+      }
+    },
+    "已有资料需要确认兼容方式。本机资料已保留，暂不继续上传。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Existing data needs a compatibility review. Your local data is retained and uploads are paused."
+          }
+        }
+      }
+    },
+    "云端资料格式暂不兼容，同步已暂停，本机资料已保留。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The cloud data format is incompatible. Sync is paused and your local data is retained."
+          }
+        }
+      }
+    }
+,
+    "查看云端记录" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "View Cloud Records"
+          }
+        }
+      }
+    },
+    "云端记录统计" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud Record Statistics"
+          }
+        }
+      }
+    },
+    "已扫描记录：%lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Records scanned: %lld"
+          }
+        }
+      }
+    },
+    "订阅 %lld，目录 %lld，目录关系 %lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Feeds: %lld, folders: %lld, memberships: %lld."
+          }
+        }
+      }
+    },
+    "已读状态 %lld，收藏状态 %lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read-state records: %lld, starred-state records: %lld."
+          }
+        }
+      }
+    },
+    "正文：收藏 %lld，未读 %lld，已读 %lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Content: starred %lld, unread %lld, read %lld."
+          }
+        }
+      }
+    },
+    "缺少状态的正文 %lld，状态不完整的正文 %lld，正文删除标记 %lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bodies without states: %lld, bodies with incomplete states: %lld, content deletion markers: %lld."
+          }
+        }
+      }
+    },
+    "记录数包含已删除项目的同步标记。其他设备同步时，统计可能随之变化。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Record counts include sync markers for deleted items. Counts may change as other devices sync."
+          }
+        }
+      }
+    },
+    "本次统计达到安全上限，结果不完整，暂不生成清理预览。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This scan reached its safety limit. Results are incomplete and cleanup preview is unavailable."
+          }
+        }
+      }
+    },
+    "统计尚未完成，可继续扫描剩余记录。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The scan is incomplete. Continue to scan the remaining records."
+          }
+        }
+      }
+    },
+    "清理预览" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cleanup Preview"
+          }
+        }
+      }
+    },
+    "可清理正文 %lld，超过保留期限的状态记录 %lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removable bodies: %lld, state records beyond retention: %lld."
+          }
+        }
+      }
+    },
+    "本轮预览最多 %lld 条记录；本机保留或待发送的文章 %lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This run previews up to %lld records and retains %lld articles kept locally or awaiting upload."
+          }
+        }
+      }
+    },
+    "本机有未确认的选项或文章身份，已暂停清理候选计算。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unconfirmed local settings or article identities are holding cleanup candidate calculation."
+          }
+        }
+      }
+    },
+    "预览按 183 天保留期限、每轮最多 400 条记录计算。保留规则仍待确认，预览不会删除云端或本机资料。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The preview uses a 183-day retention period and a limit of 400 records per run. Retention rules await review. The preview does not delete cloud or local data."
+          }
+        }
+      }
+    },
+    "正在读取云端记录…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reading cloud records…"
+          }
+        }
+      }
+    },
+    "重新统计" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rescan"
+          }
+        }
+      }
+    },
+    "继续扫描" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Continue Scan"
+          }
+        }
+      }
+    }
+,
     "纸张质感" : {
       "localizations" : {
         "en" : {
@@ -6173,6 +9165,396 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Follows your system language by default. You can switch here at any time, and the interface updates immediately."
+          }
+        }
+      }
+    },
+    "部分订阅刷新失败。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Some feeds failed to refresh."
+          }
+        }
+      }
+    },
+    "请先在系统设置中登录 iCloud。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sign in to iCloud in System Settings."
+          }
+        }
+      }
+    },
+    "iCloud 同步已暂停，请确认账号或云端资料恢复方式。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iCloud sync is paused. Review the account or recovery options."
+          }
+        }
+      }
+    },
+    "iCloud 同步已取消。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iCloud sync was cancelled."
+          }
+        }
+      }
+    },
+    "iCloud 同步暂未完成，本地更改已保留。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iCloud sync could not finish. Your local changes are retained."
+          }
+        }
+      }
+    },
+    "已有 iCloud 账号。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An iCloud account already exists."
+          }
+        }
+      }
+    },
+    "无法读取 OPML 文件，请检查文件格式。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unable to read the OPML file. Check its format."
+          }
+        }
+      }
+    },
+    "请选择本地或 iCloud 账号导入 OPML。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose a local or iCloud account to import OPML."
+          }
+        }
+      }
+    },
+    "旧版 iCloud 同步格式已停用。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The legacy iCloud sync format is no longer supported."
+          }
+        }
+      }
+    },
+    "使用系统设置中的 iCloud 账号，在多台 Mac 之间同步阅读。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use the iCloud account in System Settings to sync your reading across Macs."
+          }
+        }
+      }
+    },
+    "同步订阅、目录、已读和收藏" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync feeds, folders, read and starred states"
+          }
+        }
+      }
+    },
+    "保留收藏的 RSS 原正文" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep the original RSS content of starred articles"
+          }
+        }
+      }
+    },
+    "现有本地和服务器账号保持独立" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep existing local and server accounts separate"
+          }
+        }
+      }
+    },
+    "未读正文默认不上传，可在添加账号后开启。AI 结果、模型设置及钥匙串中的服务凭据保持本地。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unread content is off by default and can be enabled after adding the account. AI results, model settings and service credentials in Keychain stay local."
+          }
+        }
+      }
+    },
+    "订阅地址与 RSS 原文会进入你的 iCloud；私有链接中的访问参数也会同步。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Feed addresses and original RSS content go to your iCloud, including access parameters in private feed links."
+          }
+        }
+      }
+    },
+    "添加 iCloud 账号" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add iCloud Account"
+          }
+        }
+      }
+    },
+    "已有 iCloud 账号，请在账号列表查看。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An iCloud account already exists. Find it in the account list."
+          }
+        }
+      }
+    },
+    "此版本暂不支持连接 iCloud，请使用支持 iCloud 的版本。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This version cannot connect to iCloud. Use a version with iCloud support."
+          }
+        }
+      }
+    },
+    "同步已暂停，本机资料已保留。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync is paused. Your data on this Mac is retained."
+          }
+        }
+      }
+    },
+    "同步未读文章的 RSS 正文" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync original RSS content of unread articles"
+          }
+        }
+      }
+    },
+    "收藏正文始终同步。关闭此选项会取消未发送的未读正文；已上传副本由云端清理处理。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Starred content always syncs. Turning this off cancels unsent unread content; uploaded copies are handled by cloud cleanup."
+          }
+        }
+      }
+    },
+    "此版本无法连接 iCloud，本机资料仍可离线阅读。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This version cannot connect to iCloud. Your data is still available offline."
+          }
+        }
+      }
+    },
+    "移除此账号将删除它在这台 Mac 上的订阅、文章和同步待办。iCloud 中的资料以及其他账号不受影响。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removing this account deletes its feeds, articles and pending sync changes from this Mac. Its iCloud data and other accounts are unaffected."
+          }
+        }
+      }
+    },
+    "清理失败" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cleanup Failed"
+          }
+        }
+      }
+    },
+    "正在清理…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cleaning…"
+          }
+        }
+      }
+    },
+    "立即清理" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clean Now"
+          }
+        }
+      }
+    },
+    "使用系统 iCloud 账号在多台 Mac 之间同步" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync across Macs with your system iCloud account"
+          }
+        }
+      }
+    },
+    "无法移动订阅，现有资料已保留。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unable to move feeds. Your existing data is retained."
+          }
+        }
+      }
+    },
+    "待发送更改：%lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pending changes: %lld"
+          }
+        }
+      }
+    },
+    "历史文章缺少原始身份：%lld，暂留本地。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Historical articles without original identifiers: %lld. Kept on this Mac."
+          }
+        }
+      }
+    },
+    "正文超过同步大小限制：%lld，仍可在本机阅读。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Article bodies above the sync size limit: %lld. Still readable on this Mac."
+          }
+        }
+      }
+    },
+    "待恢复：文章状态 %lld，目录关系 %lld，正文 %lld。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Waiting to restore: %lld article states, %lld folder relationships, %lld article bodies."
+          }
+        }
+      }
+    },
+    "启用账号：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable account: %@"
+          }
+        }
+      }
+    },
+    "系统限制了 iCloud 访问，请检查系统设置。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iCloud access is restricted. Check System Settings."
+          }
+        }
+      }
+    },
+    "iCloud 账号暂不可用，稍后会重试；本地更改已保留。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your iCloud account is temporarily unavailable. Sync will retry; your local changes are retained."
+          }
+        }
+      }
+    },
+    "iCloud 存储空间不足，请释放空间后再同步。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iCloud storage is full. Free up space and sync again."
+          }
+        }
+      }
+    },
+    "iCloud 暂时繁忙，稍后会重试；本地更改已保留。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iCloud is busy. Sync will retry; your local changes are retained."
+          }
+        }
+      }
+    },
+    "iCloud 连接配置不可用，本机资料已保留。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The iCloud connection configuration is unavailable. Your local data is retained."
+          }
+        }
+      }
+    },
+    "iCloud 远程更新通知暂未连接，仍可手动同步。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remote iCloud updates are unavailable. You can still sync manually."
           }
         }
       }

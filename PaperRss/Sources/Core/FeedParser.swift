@@ -18,6 +18,8 @@ public struct ParsedFeedEntry: Sendable {
     public var contentHTML: String?
     public var languageHints: [ArticleLanguageHint] = []
     public var previewImage: EntryPreviewImage? = nil
+    /// Random and title/date fallbacks are usable locally, but not for cloud identity.
+    public var syncIdentityIsReliable: Bool = true
 }
 
 public enum FeedParserError: LocalizedError {
@@ -97,7 +99,9 @@ public enum FeedParser {
                     }.map { .init($0.url, source: "enclosure") },
                     contentHTML: item.content_html,
                     baseURL: link ?? baseURL
-                )
+                ),
+                syncIdentityIsReliable: item.id?.nonEmpty != nil ||
+                    ((item.url ?? item.external_url)?.nonEmpty != nil && link != nil)
             )
         }
         let iconURLString = decoded.icon ?? decoded.favicon
@@ -297,7 +301,9 @@ private final class XMLFeedParser: NSObject, XMLParserDelegate {
                     descriptionHTML: [item["description"], item["summary"], inlineDescriptionImages].compactMap { $0 }.joined(separator: "\n"),
                     contentHTML: (item["content"] ?? "") + inlineContentImages,
                     baseURL: link ?? baseURLStack.last ?? baseURL
-                )
+                ),
+                syncIdentityIsReliable: item["guid"]?.nonEmpty != nil ||
+                    item["id"]?.nonEmpty != nil || link != nil
             ))
             currentItem = nil
             currentItemLink = nil
