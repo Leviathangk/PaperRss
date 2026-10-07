@@ -150,9 +150,13 @@ swift build -c release
 
 ```bash
 ./scripts/dev.sh              # 构建并启动 App
-./scripts/dev.sh --isolated   # 临时数据目录隔离运行，不影响正在使用的实例
-./scripts/verify.sh --core    # Swift 单元与回归测试（完整分级见脚本注释）
+./scripts/dev.sh --isolated   # 隔离数据运行，仍共享桌面，可能显示窗口或取得焦点
+./scripts/verify.sh --core    # 仅 Core 回归，默认不显示测试窗口
+./scripts/verify.sh --feature # App 功能回归子集，默认不显示测试窗口
+./scripts/verify.sh --gui     # 显式运行真实窗口专项，需要图形会话
 ```
+
+日常自动化验证默认不展示窗口；真实绘制和交互验收按需运行，优先使用经过验证的独立图形会话或虚拟机。完整入口与跳过项说明见[分级验证矩阵](.agents/docs/verification-matrix.md)。
 
 或在 Xcode 中打开 `PaperRss.xcodeproj`，选择 **PaperRss** scheme 与 **My Mac** 后运行。
 

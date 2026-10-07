@@ -194,6 +194,7 @@ final class MagazineFoldEffectTests: XCTestCase {
     }
 
     func testMagazineBrowserTurnLifecycle() async throws {
+        try VisibleWindowTestSupport.requireGUI()
         let domain = "magazine-test-" + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: domain))
         defaults.set(MagazineTurning.fold.rawValue, forKey: "magazine_turning")
@@ -215,7 +216,7 @@ final class MagazineFoldEffectTests: XCTestCase {
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
-        window.orderFront(nil)
+        try VisibleWindowTestSupport.show(window: window)
         defer { window.close() }
         let pages = MagazinePaginator.pages(entries: entries, folders: [:], arrangement: .balanced,
             size: MagazinePaginator.foldViewport(CGSize(width: 1450, height: 1000)), showsImages: false)
@@ -244,6 +245,7 @@ final class MagazineFoldEffectTests: XCTestCase {
     }
 
     func testTranslationsArrivingDuringTurnDoNotCancelForwardOrBackwardPage() async throws {
+        try VisibleWindowTestSupport.requireGUI()
         let feed = UUID()
         let entries = (0..<100).map { EntryListItem(id: "translation-\($0)", feedID: feed,
             title: "Original \($0)", summaryPreview: "Summary \($0)", sourceTitle: "Feed") }
@@ -267,7 +269,7 @@ final class MagazineFoldEffectTests: XCTestCase {
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
-        window.orderFront(nil)
+        try VisibleWindowTestSupport.show(window: window)
         defer { window.close() }
         for _ in 0..<15 { try await Task.sleep(for: .milliseconds(30)); host.layoutSubtreeIfNeeded() }
         func containsMetal(_ view: NSView) -> Bool {
@@ -366,6 +368,7 @@ final class MagazineFoldEffectTests: XCTestCase {
     }
 
     func testMagazinePaperStylesRenderDistinctSheets() async throws {
+        try VisibleWindowTestSupport.requireGUI()
         let domain = "magazine-paper-style-" + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: domain))
         defaults.set(MagazineTurning.fold.rawValue, forKey: "magazine_turning")
@@ -387,7 +390,7 @@ final class MagazineFoldEffectTests: XCTestCase {
                 styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.contentView = host
-            window.orderFront(nil)
+            try VisibleWindowTestSupport.show(window: window)
             for _ in 0..<10 {
                 try await Task.sleep(for: .milliseconds(20))
                 host.layoutSubtreeIfNeeded(); host.displayIfNeeded()
@@ -408,6 +411,7 @@ final class MagazineFoldEffectTests: XCTestCase {
     }
 
     func testEntryRefreshDuringFoldKeepsSnapshotUntilLanding() async throws {
+        try VisibleWindowTestSupport.requireGUI()
         let domain = "magazine-entry-refresh-" + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: domain))
         defaults.set(MagazineTurning.fold.rawValue, forKey: "magazine_turning")
@@ -434,7 +438,7 @@ final class MagazineFoldEffectTests: XCTestCase {
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
-        window.orderFront(nil)
+        try VisibleWindowTestSupport.show(window: window)
         defer { window.close() }
         for _ in 0..<12 { try await Task.sleep(for: .milliseconds(20)); host.layoutSubtreeIfNeeded() }
         func containsMetal(_ view: NSView) -> Bool {
@@ -495,7 +499,8 @@ final class MagazineFoldEffectTests: XCTestCase {
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
-        window.orderFront(nil)
+        // 保留 NSWindow 的布局上下文，但不向用户桌面展示。
+        XCTAssertFalse(window.isVisible)
         defer { window.close() }
         func scrollView(_ view: NSView) -> NSScrollView? {
             if let scroll = view as? NSScrollView { return scroll }
@@ -508,6 +513,9 @@ final class MagazineFoldEffectTests: XCTestCase {
         for _ in 0..<18 { try await Task.sleep(for: .milliseconds(20)); host.layoutSubtreeIfNeeded() }
         let scroll = try XCTUnwrap(scrollView(host))
         XCTAssertEqual(memory.magazineAnchor, anchor, "切换滚动浏览不应重排或跳回首页")
+        XCTAssertGreaterThan(scroll.contentView.bounds.minY, 0,
+            "切换任务须实际恢复第二页的滚动偏移，不能只保留预设锚点")
+        XCTAssertFalse(window.isVisible)
         scroll.contentView.scroll(to: NSPoint(x: 0, y: scroll.contentView.bounds.minY + size.height))
         scroll.reflectScrolledClipView(scroll.contentView)
         for _ in 0..<12 { try await Task.sleep(for: .milliseconds(20)); host.layoutSubtreeIfNeeded() }
@@ -517,10 +525,12 @@ final class MagazineFoldEffectTests: XCTestCase {
         for _ in 0..<12 { try await Task.sleep(for: .milliseconds(20)); host.layoutSubtreeIfNeeded() }
         XCTAssertNil(scrollView(host))
         XCTAssertEqual(memory.magazineAnchor, scrolledAnchor, "切回折页时应保留滚动到达的页")
+        XCTAssertFalse(window.isVisible)
     }
 
     /// 第一页边缘向左先合上封面；已经在封面时再向左才离开杂志进入侧栏。
     func testMagazineBrowserLeftAtFirstPageClosesCoverBeforeSidebar() async throws {
+        try VisibleWindowTestSupport.requireGUI()
         let domain = "magazine-keyboard-" + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: domain))
         defaults.set(MagazineTurning.fold.rawValue, forKey: "magazine_turning")
@@ -542,7 +552,7 @@ final class MagazineFoldEffectTests: XCTestCase {
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
-        window.orderFront(nil)
+        try VisibleWindowTestSupport.show(window: window)
         defer { window.close() }
         for _ in 0..<15 {
             try await Task.sleep(for: .milliseconds(30))
@@ -566,6 +576,7 @@ final class MagazineFoldEffectTests: XCTestCase {
 
     /// 上下键只做纵向移动：到达页底不再换行推进或翻页。
     func testMagazineBrowserDownAtPageBottomStaysOnPage() async throws {
+        try VisibleWindowTestSupport.requireGUI()
         let domain = "magazine-keyboard-down-" + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: domain))
         defaults.set(MagazineTurning.fold.rawValue, forKey: "magazine_turning")
@@ -587,7 +598,7 @@ final class MagazineFoldEffectTests: XCTestCase {
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
-        window.orderFront(nil)
+        try VisibleWindowTestSupport.show(window: window)
         defer { window.close() }
         for _ in 0..<15 {
             try await Task.sleep(for: .milliseconds(30))
@@ -612,6 +623,7 @@ final class MagazineFoldEffectTests: XCTestCase {
 
     /// 从右半页向右翻到下一页后立即翻回，应回到离开的右半页卡片，而不是阅读顺序的末篇。
     func testMagazineBrowserReturningToPreviousPageRestoresDepartureSelection() async throws {
+        try VisibleWindowTestSupport.requireGUI()
         let domain = "magazine-keyboard-return-" + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: domain))
         defaults.set(MagazineTurning.fold.rawValue, forKey: "magazine_turning")
@@ -633,7 +645,7 @@ final class MagazineFoldEffectTests: XCTestCase {
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
-        window.orderFront(nil)
+        try VisibleWindowTestSupport.show(window: window)
         defer { window.close() }
         for _ in 0..<15 {
             try await Task.sleep(for: .milliseconds(30))
@@ -670,11 +682,12 @@ final class MagazineFoldEffectTests: XCTestCase {
     }
 
     func testInteractiveCancellationReleasesSnapshotsAndIgnoresOldCompletion() async throws {
+        try VisibleWindowTestSupport.requireGUI()
         let surface = MagazineTurnSurface(content: Text("旧页"), pageID: "old")
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 500),
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.contentView = surface; window.orderFront(nil)
+        window.contentView = surface; try VisibleWindowTestSupport.show(window: window)
         defer { window.close() }
         surface.layoutSubtreeIfNeeded()
         var completions: [(UUID, Bool)] = []
@@ -697,11 +710,12 @@ final class MagazineFoldEffectTests: XCTestCase {
         XCTAssertEqual(surface.snapshotCount, 2)
     }
     func testCancelledGestureReturnsToSourceWithoutAnotherSnapshot() async throws {
+        try VisibleWindowTestSupport.requireGUI()
         let surface = MagazineTurnSurface(content: Text("源页面"), pageID: "source")
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 500),
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.contentView = surface; window.orderFront(nil)
+        window.contentView = surface; try VisibleWindowTestSupport.show(window: window)
         defer { window.close() }
         surface.layoutSubtreeIfNeeded()
         var request = MagazinePageTurnRequest(targetPageID: "target", forward: true, progress: 0.2)
@@ -1052,6 +1066,7 @@ final class MagazineFoldEffectTests: XCTestCase {
     }
 
     func testRepeatedMetalDrawsReleaseDrawableAndLeaveWindowResponsive() async throws {
+        try VisibleWindowTestSupport.requireGUI()
         let context = try XCTUnwrap(CGContext(data: nil, width: 320, height: 200,
             bitsPerComponent: 8, bytesPerRow: 1280, space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
@@ -1063,7 +1078,7 @@ final class MagazineFoldEffectTests: XCTestCase {
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 320, height: 200),
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.contentView = renderer.view; window.orderFront(nil)
+        window.contentView = renderer.view; try VisibleWindowTestSupport.show(window: window)
         defer { window.close() }
         for index in 0..<60 {
             XCTAssertTrue(renderer.draw(progress: Double(index % 30) / 29))
@@ -1077,12 +1092,13 @@ final class MagazineFoldEffectTests: XCTestCase {
 
 extension MagazineFoldEffectTests {
     func testCrossfadeCommitsAndCancelsWithoutAdditionalSnapshots() async throws {
+        try VisibleWindowTestSupport.requireGUI()
         for commit in [false, true] {
             let surface = MagazineTurnSurface(content: Text("源页"), pageID: "source")
             let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 500),
                 styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
-            window.contentView = surface; window.orderFront(nil)
+            window.contentView = surface; try VisibleWindowTestSupport.show(window: window)
             defer { window.close() }
             surface.layoutSubtreeIfNeeded()
             var request = MagazinePageTurnRequest(targetPageID: "target", forward: true, progress: 0.3)
@@ -1106,6 +1122,7 @@ extension MagazineFoldEffectTests {
 
 extension MagazineFoldEffectTests {
     func testRestorationRequestedWhileHiddenRunsWhenMagazineReappears() async throws {
+        try VisibleWindowTestSupport.requireGUI()
         let domain = "magazine-return-" + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: domain))
         defaults.set("fold", forKey: "magazine_turning")
@@ -1122,7 +1139,7 @@ extension MagazineFoldEffectTests {
         })
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 800),
             styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+        window.isReleasedWhenClosed = false; window.contentView = host; try VisibleWindowTestSupport.show(window: window)
         defer { window.close() }
         try await Task.sleep(for: .milliseconds(150))
         input.browsing = false
@@ -1138,6 +1155,7 @@ extension MagazineFoldEffectTests {
 
 extension MagazineFoldEffectTests {
     func testCoverOpensWithoutSelectingAndScopeResetClosesIt() async throws {
+        try VisibleWindowTestSupport.requireGUI()
         let memory = TimelinePresentationMemory()
         let input = MagazineLifecycleInput()
         var highlighted: String?
@@ -1152,7 +1170,7 @@ extension MagazineFoldEffectTests {
         })
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 800),
             styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+        window.isReleasedWhenClosed = false; window.contentView = host; try VisibleWindowTestSupport.show(window: window)
         defer { window.close() }
         try await Task.sleep(for: .milliseconds(100))
         XCTAssertFalse(memory.magazineIsOpen)
@@ -1178,6 +1196,7 @@ extension MagazineFoldEffectTests {
     }
 
     func testCoverOpensAndBackwardTurnTriggersClosingAction() async throws {
+        try VisibleWindowTestSupport.requireGUI()
         let domain = "magazine-cover-book-style-" + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: domain))
         defaults.set(MagazinePaperStyle.book.rawValue, forKey: "magazine_paper_style")
@@ -1196,7 +1215,7 @@ extension MagazineFoldEffectTests {
         })
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 800),
             styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+        window.isReleasedWhenClosed = false; window.contentView = host; try VisibleWindowTestSupport.show(window: window)
         defer { window.close() }
         try await Task.sleep(for: .milliseconds(100))
         XCTAssertFalse(memory.magazineIsOpen)
@@ -1214,6 +1233,7 @@ extension MagazineFoldEffectTests {
     }
 
     func testSwitchingFeedDuringCoverOpeningCancelsOldLayersAndWaitsOnNewCover() async throws {
+        try VisibleWindowTestSupport.requireGUI()
         let domain = "magazine-cover-switch-" + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: domain))
         defaults.set(MagazineTurning.fold.rawValue, forKey: "magazine_turning")
@@ -1234,7 +1254,7 @@ extension MagazineFoldEffectTests {
         let window = NSWindow(contentRect: CGRect(origin: .zero, size: size),
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.contentView = host; window.orderFront(nil)
+        window.contentView = host; try VisibleWindowTestSupport.show(window: window)
         defer { window.close() }
         func coverLayer(in view: NSView) -> CALayer? {
             func find(_ layer: CALayer?) -> CALayer? {
@@ -1290,6 +1310,7 @@ extension MagazineFoldEffectTests {
     }
 
     func testCoverKeepsVisibleTextStableUntilOpeningFinishes() async throws {
+        try VisibleWindowTestSupport.requireGUI()
         let entries = coverEntries()
         let input = MagazineTranslationInput()
         let probe = MagazineTranslationPresentationProbe()
@@ -1306,7 +1327,7 @@ extension MagazineFoldEffectTests {
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
-        window.orderFront(nil)
+        try VisibleWindowTestSupport.show(window: window)
         defer { window.close() }
         for _ in 0..<10 { try await Task.sleep(for: .milliseconds(20)); host.layoutSubtreeIfNeeded() }
         input.key = .init(keyCode: 36)
@@ -1334,6 +1355,7 @@ extension MagazineFoldEffectTests {
     }
 
     func testEmptyMagazineStaysClosedUntilArticlesArrive() async throws {
+        try VisibleWindowTestSupport.requireGUI()
         let memory = TimelinePresentationMemory()
         let input = MagazineEntriesInput()
         let host = NSHostingView(rootView: MagazineEntriesDriver(input: input) { entries in
@@ -1345,7 +1367,7 @@ extension MagazineFoldEffectTests {
         })
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 800),
             styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+        window.isReleasedWhenClosed = false; window.contentView = host; try VisibleWindowTestSupport.show(window: window)
         defer { window.close() }
 
         // 没有文章：计时器走完也不翻开，默认保持空态。
@@ -1377,11 +1399,12 @@ extension MagazineFoldEffectTests {
     }
 
     func testScrubBurstOnlyPreparesLatestExplicitPagePair() async throws {
+        try VisibleWindowTestSupport.requireGUI()
         let surface = MagazineTurnSurface(content: scrubContent(0), pageID: "0")
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 700),
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.contentView = surface; window.orderFront(nil)
+        window.contentView = surface; try VisibleWindowTestSupport.show(window: window)
         defer { surface.cancelTurn(notify: false); window.close() }
         surface.layoutSubtreeIfNeeded()
         let session = UUID()
@@ -1409,11 +1432,12 @@ extension MagazineFoldEffectTests {
     }
 
     func testScrubReusesNeighbourSnapshotsAndRendererThenSettlesLatestPosition() async throws {
+        try VisibleWindowTestSupport.requireGUI()
         let surface = MagazineTurnSurface(content: scrubContent(0), pageID: "0")
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 700),
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.contentView = surface; window.orderFront(nil)
+        window.contentView = surface; try VisibleWindowTestSupport.show(window: window)
         defer { surface.cancelTurn(notify: false); window.close() }
         surface.layoutSubtreeIfNeeded()
         let session = UUID()
@@ -1459,11 +1483,12 @@ extension MagazineFoldEffectTests {
     }
 
     func testScrubCancellationDropsPendingFramesAndBoundedCache() async throws {
+        try VisibleWindowTestSupport.requireGUI()
         let surface = MagazineTurnSurface(content: scrubContent(0), pageID: "0")
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 500),
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.contentView = surface; window.orderFront(nil)
+        window.contentView = surface; try VisibleWindowTestSupport.show(window: window)
         defer { surface.cancelTurn(notify: false); window.close() }
         surface.layoutSubtreeIfNeeded()
         let session = UUID()
@@ -1535,6 +1560,7 @@ extension MagazineFoldEffectTests {
     }
 
     func testDiagnoseEdgeLine() async throws {
+        try VisibleWindowTestSupport.requireMagazineDiagnostics()
         let stageColor = NSColor(srgbRed: 0.9529, green: 0.9529, blue: 0.9529, alpha: 1)
         let entries = coverEntries(8)
         let memory = TimelinePresentationMemory()
@@ -1553,7 +1579,7 @@ extension MagazineFoldEffectTests {
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
-        window.orderFront(nil)
+        try VisibleWindowTestSupport.show(window: window)
         defer { window.close() }
 
         // Wait for magazine to lay out
@@ -1710,6 +1736,7 @@ extension MagazineFoldEffectTests {
     }
 
     func testRealSnapshotFromSurfaceBleedsEdgeAndMetalRendersNoBlackEdge() throws {
+        try VisibleWindowTestSupport.requireGUI()
         let device = try XCTUnwrap(MTLCreateSystemDefaultDevice())
         let queue = try XCTUnwrap(device.makeCommandQueue())
         let stageColor = NSColor(red: 236/255.0, green: 231/255.0, blue: 220/255.0, alpha: 1.0)
@@ -1722,7 +1749,7 @@ extension MagazineFoldEffectTests {
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = surface
-        window.orderFront(nil)
+        try VisibleWindowTestSupport.show(window: window)
         defer { window.close() }
         surface.layoutSubtreeIfNeeded()
 

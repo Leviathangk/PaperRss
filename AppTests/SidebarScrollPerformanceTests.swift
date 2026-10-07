@@ -109,7 +109,7 @@ final class SidebarScrollPerformanceTests: XCTestCase {
         window.isReleasedWhenClosed = false
         window.title = "侧边栏滚动性能验证"
         window.contentView = host
-        window.makeKeyAndOrderFront(nil)
+        try VisibleWindowTestSupport.show(window: window, makeKey: true)
         defer { window.close() }
         try await Task.sleep(for: .seconds(1))
         let scroll = try XCTUnwrap(findScrollView(host))
@@ -129,6 +129,7 @@ final class SidebarScrollPerformanceTests: XCTestCase {
     }
 
     func testFiveHundredFoldersScrollDuringBatchUpdates() async throws {
+        try VisibleWindowTestSupport.requireGUI()
         guard ProcessInfo.processInfo.environment["PAPERRSS_RUN_SIDEBAR_PERF"] == "1" else {
             throw XCTSkip("需显式开启真实窗口滚动性能验证")
         }
@@ -141,6 +142,7 @@ final class SidebarScrollPerformanceTests: XCTestCase {
         XCTAssertLessThan(animated.cpu, baseline.cpu * 1.75 + 0.4, "动画导致 CPU 开销显著放大")
     }
     func testThreeThousandFeedsScrollDuringImportBatchUpdates() async throws {
+        try VisibleWindowTestSupport.requireGUI()
         guard ProcessInfo.processInfo.environment["PAPERRSS_RUN_SIDEBAR_PERF"] == "1" else {
             throw XCTSkip("需显式开启真实窗口滚动性能验证")
         }

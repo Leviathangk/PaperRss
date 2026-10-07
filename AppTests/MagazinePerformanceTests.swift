@@ -38,9 +38,14 @@ final class MagazinePerformanceTests: XCTestCase {
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 720),
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: view)
-        window.orderFrontRegardless()
+        let host = NSHostingView(rootView: view.frame(width: 1000, height: 720))
+        window.contentView = host
         defer { window.contentView = nil; window.close() }
+        // 布局驱动 SwiftUI 的预加载任务，无须显示窗口。
+        for _ in 0..<15 where probe.requests.isEmpty {
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(20))
+        }
         await fulfillment(of: [requested], timeout: 5)
         let request = try XCTUnwrap(probe.requests.first)
         for _ in 0..<100 where store.cachedImage(for: request) == nil {
@@ -49,6 +54,7 @@ final class MagazinePerformanceTests: XCTestCase {
         XCTAssertNotNil(store.cachedImage(for: request), "下载结果已解码，开页可同步命中")
         _ = try await store.image(for: request)
         XCTAssertEqual(probe.requests.count, 1, "实际展示复用缓存，不重复请求")
+        XCTAssertFalse(window.isVisible)
     }
 
     func testOpeningPreloadIsLimitedToFirstPageAndRejectsOldScopeOrDisabledImages() throws {

@@ -1,38 +1,42 @@
 # 开发数据备份
 
-改动持久化、迁移或需要真实数据做 GUI 验收前，先备份 App 数据。备份文件不进入仓库，备份前先清点，超限时提示用户。
-
+此流程适用于可能写入真实用户数据的操作：写入真实库、运行迁移、启动可能自动迁移或持久化的真实 App / GUI 前，确认既有任务授权涵盖相应操作并取得一致快照。已授权且能保证只读的真实数据检查无需备份；无法证明只读时按可能写入处理。修改持久化源码、使用临时 fixture 或隔离测试库不要求备份正式数据，也不重复请求已有任务授权。
 
 ## 位置与命名
 
 | 项 | 约定 |
 | --- | --- |
 | 位置 | App 数据目录的同级兄弟目录，默认 `~/Library/Application Support/PaperRss-dev-backups`，与 App 数据同卷 |
-| 内容 | `Application Support/PaperRss` 的全部持久化文件：`library.sqlite` 及 `-wal`/`-shm`、遗留 `library.json` |
+| 内容 | 完整复制 `Application Support/PaperRss` 持久化目录，包括 `library.sqlite`、存在的 `-wal` / `-shm`、遗留 `library.json` 与其他持久化文件 |
 | 命名 | `<YYYYMMDD-HHMMSS>-<任务名>` |
 | 保留 | 最多 3 份；新建前清点，不得出现第 4 份 |
 
-同级目录而不是仓库或系统临时目录：App 只读写 `Application Support/PaperRss`，兄弟目录不会被 App 读到，同卷复制也最快。
+兄弟目录不会被 App 当作工作数据读取；备份文件不进入仓库、系统临时目录、`clean.sh` 或报告轮转范围。
+
+## 一致快照
+
+- 在 App 已正常退出或所有写入已停止时复制完整目录，并核对复制成功及源目录与快照内容；不得直接复制正在写入的 SQLite、WAL 与 SHM 文件来声称完成备份。
+- 若必须在运行中备份，使用 SQLite 的一致备份机制，并保证其他持久化文件同样处于一致状态；无法保证时先停止后续真实数据操作。
+- 不为备份擅自终止用户的日常实例；需要用户退出 App 时说明原因。取得可恢复快照后再开展真实库操作。
 
 ## 检查与清除
 
 创建新备份前先清点该目录：
 
-- 不足 3 份：直接备份。
-- 已达到 3 份：列出每份的目录名、创建时间与占用（`du -sh`），提示用户并确认删除哪几份；用户确认后才能删除，然后继续备份与后续开发。
+- 不足 3 份：完成一致性检查后备份。
+- 已达到 3 份：列出每份目录名、创建时间与占用（`du -sh`），由用户确认删除具体备份后再继续。未获确认不得删除，也不得跳过备份操作真实数据。
 
-不自动删除，也不进入 `clean.sh` 或报告轮转范围。用户未确认时才自动清除，在最后回答中提示。
+不自动删除备份。临时 fixture 的清理与真实数据备份保留分开处理。
 
 ## 恢复
 
-关闭 App 后进行，避免 WAL 与新进程混写：
+恢复需有对应授权，并在 App 正常退出、没有其他进程写入该目录后执行：
 
-```sh
-mv ~/Library/Application\ Support/PaperRss ~/Library/Application\ Support/PaperRss-broken
-mv ~/Library/Application\ Support/PaperRss-dev-backups/<快照> ~/Library/Application\ Support/PaperRss
-```
+1. 核对快照完整性与恢复目标；保留当前目录为单独的故障副本，避免覆盖唯一数据。
+2. 复制整个快照目录到 App 数据位置，不将快照移走，不混入当前目录的 SQLite / WAL / SHM 文件。
+3. 核对权限、文件与 SQLite 完整性后启动 App，检查库可正常读取。保留原快照和故障副本，未经授权不删除。
 
 ## 已知边界
 
-- 备份是人工快照，没有定时任务，也不是 Time Machine 替代品；长期保全由自行安排。
+- 备份是任务开始前的人工快照，没有定时任务，也不是 Time Machine 替代品；长期保全由用户自行安排。
 - 迁移备份 `library.json.pre-sqlite-*.backup` 是 App 功能产物（`LegacyJSONMigrator`），不属于本流程。

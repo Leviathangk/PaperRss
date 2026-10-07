@@ -167,12 +167,12 @@ if [[ "$CMD" == "build" ]]; then
 
   # [PASS 1] 测试
   if [[ "$NO_TESTS" == true ]]; then
-    warn "已跳过测试（--no-tests）——发布前必须完整跑过一轮 verify.sh --core"
+    warn "已跳过测试（--no-tests）——发布前必须完整跑过一轮 verify.sh --all"
   else
-    step "[PASS 1] 单元与状态机测试（verify.sh --core）"
-    ./scripts/verify.sh --core >"$RELEASE_DIR/verify-core.log" 2>&1 \
-      || { tail -40 "$RELEASE_DIR/verify-core.log" >&2; fail "verify.sh --core 未通过"; }
-    pass "[PASS 1] 测试全部通过（日志: $RELEASE_DIR/verify-core.log）"
+    step "[PASS 1] 全量自动验证（verify.sh --all）"
+    ./scripts/verify.sh --all >"$RELEASE_DIR/verify-all.log" 2>&1 \
+      || { tail -40 "$RELEASE_DIR/verify-all.log" >&2; fail "verify.sh --all 未通过"; }
+    pass "[PASS 1] 自动验证通过（日志: $RELEASE_DIR/verify-all.log；真实交互须另行验收）"
   fi
 
   # [PASS 2] provenance 构建
@@ -248,8 +248,9 @@ if [[ "$CMD" == "build" ]]; then
   du -h "$RELEASE_DIR"/* 2>/dev/null | sort -k2 || true
   echo ""
   echo "下一步:"
-  echo "  ./scripts/release.sh verify --manifest $MANIFEST_PATH   # 复验"
-  echo "  ./scripts/release.sh publish --manifest $MANIFEST_PATH --tag $TAG --channel $CHANNEL   # 默认 dry-run"
+  printf '  ./scripts/release.sh verify --manifest %q   # 复验\n' "$MANIFEST_PATH"
+  printf '  ./scripts/release.sh publish --manifest %q --tag %q --channel %q --output-dir "$(mktemp -d %q)"   # 默认 dry-run，每次生成新计划目录\n' \
+    "$MANIFEST_PATH" "$TAG" "$CHANNEL" "$RELEASE_DIR/publish-plan.XXXXXX"
   exit 0
 fi
 

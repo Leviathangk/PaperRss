@@ -18,10 +18,14 @@ usage() {
 
 环境变量:
   PAPERRSS_SKIP_NOTARIZATION=1   等价 --skip-notarization（仅本机演练用）
+  PAPERRSS_RUN_LAUNCH_SMOKE=1    显式执行 3 秒启动冒烟（默认跳过）
+  PAPERRSS_SKIP_LAUNCH_SMOKE     设置后始终跳过启动冒烟，优先于 RUN
 
 说明:
   - 公证凭据只经 notarytool keychain profile 引用；脚本不接受任何密码。
   - 日志只输出「已设置/未设置」，绝不回显变量值。
+  - 启动冒烟会运行真实 GUI，可能激活 App；临时数据目录不隔离桌面。
+    需要无打扰时在经验证的独立图形会话运行；维护者也可明确选择当前桌面。
 EOF
 }
 
@@ -52,8 +56,29 @@ fail() { echo "[FAIL] $*" >&2; exit 1; }
 step() { echo "── $*"; }
 
 TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/paperrss-notary.XXXXXX")
-cleanup() { rm -rf "$TMP_DIR"; }
+SMOKE_PID=""
+stop_launch_smoke() {
+  [[ -n "$SMOKE_PID" ]] || return 0
+  if kill -0 "$SMOKE_PID" 2>/dev/null; then
+    kill "$SMOKE_PID" 2>/dev/null || true
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      kill -0 "$SMOKE_PID" 2>/dev/null || break
+      sleep 0.1
+    done
+    if kill -0 "$SMOKE_PID" 2>/dev/null; then
+      kill -KILL "$SMOKE_PID" 2>/dev/null || true
+    fi
+  fi
+  wait "$SMOKE_PID" 2>/dev/null || true
+  SMOKE_PID=""
+}
+cleanup() {
+  stop_launch_smoke
+  rm -rf "$TMP_DIR"
+}
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 APP_NAME="PaperRss"
 EXPORT_DIR="$OUTPUT_DIR"
@@ -107,27 +132,28 @@ echo "$CODESIGN_DVV" | grep -Eq 'flags=0x[0-9a-f]+\(runtime\)|^Runtime[= ]' \
 
 pass "[PASS 4] 签名门禁通过（Developer ID + Hardened Runtime + secure timestamp）"
 
-# 启动冒烟：导出产物必须能在本机存活启动（防 rpath/嵌入缺失类 dyld 崩溃
-# 流出到公证环节）。公证前执行——崩溃的 App 不配消耗公证额度。
-step "[4b] 启动冒烟（3 秒存活探针）"
-if [[ -z "${PAPERRSS_SKIP_LAUNCH_SMOKE:-}" ]]; then
-  LAUNCH_LOG="$TMP_DIR/launch-smoke.log"
-  open -n "$APP_PATH" >"$LAUNCH_LOG" 2>&1 || fail "App 无法启动（open 失败，见 ${LAUNCH_LOG}）"
-  ALIVE=false
+# 启动探针按需显式执行；需要无打扰时须使用独立图形会话。
+if [[ -n "${PAPERRSS_SKIP_LAUNCH_SMOKE:-}" ]]; then
+  echo "[SKIP] 启动冒烟未验证（PAPERRSS_SKIP_LAUNCH_SMOKE 优先）"
+elif [[ "${PAPERRSS_RUN_LAUNCH_SMOKE:-}" == "1" ]]; then
+  step "[4b] 启动冒烟（完整观察 3 秒；可能激活 App）"
+  APP_EXECUTABLE="$APP_PATH/Contents/MacOS/$APP_NAME"
+  [[ -x "$APP_EXECUTABLE" ]] || fail "启动冒烟缺少可执行文件: $APP_EXECUTABLE"
+  SMOKE_HOME="$TMP_DIR/launch-smoke-home"
+  mkdir -p "$SMOKE_HOME"
+  LAUNCH_LOG="$EXPORT_DIR/launch-smoke.log"
+  env CFFIXED_USER_HOME="$SMOKE_HOME" "$APP_EXECUTABLE" >"$LAUNCH_LOG" 2>&1 &
+  SMOKE_PID=$!
   for _ in 1 2 3 4 5 6; do
-    sleep 0.7
-    if pgrep -xf "$APP_PATH/Contents/MacOS/$APP_NAME" >/dev/null 2>&1; then ALIVE=true; break; fi
+    sleep 0.5
+    if ! kill -0 "$SMOKE_PID" 2>/dev/null; then
+      fail "导出产物未存活完整 3 秒（见 ${LAUNCH_LOG}；检查 LC_RPATH 与嵌入框架）"
+    fi
   done
-  pkill -xf "$APP_PATH/Contents/MacOS/$APP_NAME" 2>/dev/null || true
-  sleep 0.5
-  if [[ "$ALIVE" != true ]]; then
-    echo "启动冒烟失败：进程未存活。最近崩溃报告：" >&2
-    ls -t ~/Library/Logs/DiagnosticReports/PaperRss-* 2>/dev/null | head -1 >&2 || true
-    fail "导出产物启动即崩（典型原因：LC_RPATH 缺 @executable_path/../Frameworks 或框架未内嵌）"
-  fi
-  pass "[PASS 4b] 启动冒烟通过（进程存活并已退出）"
+  stop_launch_smoke
+  pass "[PASS 4b] 启动冒烟通过（完整存活 3 秒并清理本次 PID；不代表交互验收）"
 else
-  echo "[SKIP] [PASS 4b] 启动冒烟已跳过（PAPERRSS_SKIP_LAUNCH_SMOKE）"
+  echo "[SKIP] 启动冒烟未验证（默认不启动 App；显式设置 PAPERRSS_RUN_LAUNCH_SMOKE=1 会运行真实 GUI，可能激活 App）"
 fi
 
 # 注意：spctl 评估放在 [PASS 6] Staple 之后——未公证的 Developer ID 在此阶段

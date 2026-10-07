@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, chmodSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, chmodSync, cpSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -58,6 +58,9 @@ function makeFakeBin(behavior = {}) {
     ditto: ':;',
     'create-dmg': CREATE_DMG_TOUCH,
     notarytool: 'echo "Inserted distribution ID: 11111111-2222-3333-4444-555555555555"\necho "status: Accepted"',
+    open: 'echo "unexpected GUI launch" >&2; exit 91',
+    pgrep: 'echo "unexpected process lookup" >&2; exit 92',
+    pkill: 'echo "unexpected process cleanup" >&2; exit 93',
   };
   // 脚本通过 `xcrun notarytool|stapler …` 调用：shim 路由回同目录 fake
   writeFake(bin, 'xcrun', `
@@ -78,7 +81,13 @@ function run(script, args, extraEnv = {}) {
     cwd: ROOT,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, FAKE_CALLS: extraEnv.FAKE_CALLS ?? '', PAPERRSS_SKIP_LAUNCH_SMOKE: '1', ...extraEnv },
+    env: {
+      ...process.env,
+      FAKE_CALLS: extraEnv.FAKE_CALLS ?? '',
+      PAPERRSS_RUN_LAUNCH_SMOKE: '',
+      PAPERRSS_SKIP_LAUNCH_SMOKE: '',
+      ...extraEnv,
+    },
   });
 }
 
@@ -127,16 +136,142 @@ const NOTARIZE_ARGS = (dir, archive) => [
 ];
 
 test('export_and_notarize 全链路：导出→签名门禁→公证→Staple 依次 PASS', () => {
-  withSandbox(({ dir, archive, makeBin }) => {
+  withSandbox(({ dir, archive, makeBin, calls }) => {
     const bin = makeBin({});
     const out = run(join(SPARKLE, 'export_and_notarize.sh'), NOTARIZE_ARGS(dir, archive), {
       PATH: `${bin}:${process.env.PATH}`,
+      FAKE_CALLS: calls,
     });
     assert.match(out, /\[PASS 3\]/);
     assert.match(out, /\[PASS 4\][^\n]*Developer ID[^\n]*Hardened Runtime/);
     assert.match(out, /\[PASS 5\][^\n]*Accepted/);
     assert.match(out, /\[PASS 6\]/);
+    assert.match(out, /\[SKIP\] 启动冒烟未验证/);
+    assert.doesNotMatch(out, /\[PASS 4b\]/);
+    assert.doesNotMatch(readFileSync(calls, 'utf8'), /^(open|pgrep|pkill) /m);
     assert.equal(out.trim().split('\n').pop(), join(dir, 'out', 'PaperRss.app'));
+  });
+});
+
+test('显式 SKIP 优先于 RUN：导出不拉起 App，也不查找或清理用户进程', () => {
+  withSandbox(({ dir, archive, makeBin, calls }) => {
+    const bin = makeBin({});
+    const out = run(join(SPARKLE, 'export_and_notarize.sh'), NOTARIZE_ARGS(dir, archive), {
+      PATH: `${bin}:${process.env.PATH}`,
+      FAKE_CALLS: calls,
+      PAPERRSS_RUN_LAUNCH_SMOKE: '1',
+      PAPERRSS_SKIP_LAUNCH_SMOKE: '1',
+    });
+    assert.match(out, /\[SKIP\] 启动冒烟未验证.*SKIP_LAUNCH_SMOKE 优先/);
+    assert.doesNotMatch(readFileSync(calls, 'utf8'), /^(open|pgrep|pkill) /m);
+  });
+});
+
+function smokeFixture(dir, makeBin, source) {
+  const executable = join(dir, 'fake-smoke-app');
+  writeFileSync(executable, `#!/usr/bin/env node\n${source}\n`);
+  chmodSync(executable, 0o755);
+  const bin = makeBin({ xcodebuild: `
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "-exportPath" ]; then
+    mkdir -p "$a/PaperRss.app/Contents/MacOS"
+    cp "$FAKE_SMOKE_SOURCE" "$a/PaperRss.app/Contents/MacOS/PaperRss"
+  fi
+  prev="$a"
+done
+` });
+  return { PATH: `${bin}:${process.env.PATH}`, FAKE_SMOKE_SOURCE: executable, PAPERRSS_RUN_LAUNCH_SMOKE: '1' };
+}
+
+test('显式冒烟使用临时数据目录，完整观察 3 秒并只清理本次 PID', () => {
+  withSandbox(({ dir, archive, makeBin, calls }) => {
+    const record = join(dir, 'smoke.json');
+    const unrelated = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    const env = smokeFixture(dir, makeBin, `
+const { writeFileSync } = require('node:fs');
+writeFileSync(process.env.FAKE_SMOKE_RECORD, JSON.stringify({ pid: process.pid, home: process.env.CFFIXED_USER_HOME, started: Date.now() }));
+setInterval(() => {}, 1000);
+`);
+    try {
+      const out = run(join(SPARKLE, 'export_and_notarize.sh'), NOTARIZE_ARGS(dir, archive), {
+        ...env, FAKE_CALLS: calls, FAKE_SMOKE_RECORD: record,
+      });
+      const { pid, home, started } = JSON.parse(readFileSync(record, 'utf8'));
+      assert.ok(Date.now() - started >= 2900, '不能在首次发现进程存活后提前通过');
+      assert.ok(home && home !== process.env.HOME && home !== process.env.CFFIXED_USER_HOME);
+      assert.match(home, /paperrss-notary\..*\/launch-smoke-home$/);
+      assert.equal(existsSync(home), false, '退出时清理本次临时数据');
+      assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' }, '本次进程已结束');
+      assert.doesNotThrow(() => process.kill(unrelated.pid, 0), '其他进程仍存活');
+      assert.match(out, /\[PASS 4b\].*完整存活 3 秒.*本次 PID/);
+      assert.doesNotMatch(readFileSync(calls, 'utf8'), /^(open|pgrep|pkill) /m);
+    } finally {
+      unrelated.kill();
+    }
+  });
+});
+
+test('冒烟在 3 秒内退出则失败，保留日志且不进入公证', () => {
+  withSandbox(({ dir, archive, makeBin, calls }) => {
+    const env = smokeFixture(dir, makeBin, 'console.error("fixture early exit"); setTimeout(() => process.exit(0), 1000);');
+    const out = runExpectFailure(join(SPARKLE, 'export_and_notarize.sh'), NOTARIZE_ARGS(dir, archive), {
+      ...env, FAKE_CALLS: calls,
+    });
+    assert.match(out, /未存活完整 3 秒/);
+    assert.match(readFileSync(join(dir, 'out', 'launch-smoke.log'), 'utf8'), /fixture early exit/);
+    assert.doesNotMatch(readFileSync(calls, 'utf8'), /^(notarytool|stapler|open|pgrep|pkill) /m);
+  });
+});
+
+test('build_dmg 只代理本地 build，兼容直接参数与显式子命令', () => {
+  withSandbox(({ dir, calls }) => {
+    const scripts = join(dir, 'scripts');
+    mkdirSync(scripts);
+    const wrapper = join(scripts, 'build_dmg.sh');
+    cpSync(join(ROOT, 'scripts', 'build_dmg.sh'), wrapper);
+    writeFake(scripts, 'release.sh', 'exit 0');
+    const env = { FAKE_CALLS: calls };
+    assert.match(run(wrapper, [], env), /无参数.*只显示/);
+    assert.equal(readFileSync(calls, 'utf8'), '', '无参数不得触发构建或发布');
+    assert.match(run(wrapper, ['--help'], env), /仅生成本地产物/);
+    assert.match(run(wrapper, ['build', '--help'], env), /仅生成本地产物/);
+    assert.match(run(wrapper, ['build'], env), /无参数.*只显示/);
+    run(wrapper, ['--version', '9.9.9', '--build', '42'], env);
+    run(wrapper, ['build', '--version', '9.9.9', '--build', '43'], env);
+    assert.equal(readFileSync(calls, 'utf8'),
+      'release.sh build --version 9.9.9 --build 42\nrelease.sh build --version 9.9.9 --build 43\n');
+    assert.throws(() => run(wrapper, ['publish'], env), { status: 2 });
+    assert.throws(() => run(wrapper, ['verify'], env), { status: 2 });
+    assert.doesNotMatch(readFileSync(calls, 'utf8'), /--local|publish|verify/);
+  });
+});
+
+test('release 提示的 publish 命令包含必填参数，重复执行使用新计划目录', () => {
+  withSandbox(({ dir, calls }) => {
+    const source = readFileSync(join(ROOT, 'scripts', 'release.sh'), 'utf8');
+    const start = source.indexOf('  echo "下一步:"');
+    const end = source.indexOf('  exit 0', start);
+    assert.ok(start >= 0 && end > start);
+    const scripts = join(dir, 'scripts');
+    mkdirSync(scripts);
+    writeFake(scripts, 'release.sh', 'exit 0');
+    const releaseDir = join(dir, 'release with spaces');
+    mkdirSync(releaseDir);
+    const output = execFileSync('bash', ['-c', source.slice(start, end)], {
+      cwd: dir, encoding: 'utf8',
+      env: { ...process.env, MANIFEST_PATH: join(releaseDir, 'manifest.json'), TAG: 'v9.9.9', CHANNEL: 'stable', RELEASE_DIR: releaseDir },
+    });
+    const command = output.split('\n').find((line) => line.includes('release.sh publish'));
+    assert.ok(command);
+    assert.match(command, /--output-dir/);
+    for (let index = 0; index < 2; index += 1) {
+      execFileSync('bash', ['-c', command], { cwd: dir, env: { ...process.env, FAKE_CALLS: calls } });
+    }
+    const plans = readFileSync(calls, 'utf8').trim().split('\n').map((line) => line.split('--output-dir ')[1]);
+    assert.equal(plans.length, 2);
+    assert.notEqual(plans[0], plans[1]);
+    assert.ok(plans.every((path) => existsSync(path)));
   });
 });
 

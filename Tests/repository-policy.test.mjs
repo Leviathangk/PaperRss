@@ -1,13 +1,129 @@
 import assert from 'node:assert/strict';
-import { access, lstat, readFile, readdir } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { access, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { execFile } from 'node:child_process';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 
 const fromRoot = (path) => resolve(root, path);
 const readRepoFile = (path) => readFile(fromRoot(path), 'utf8');
+const execFileAsync = promisify(execFile);
+
+// Run the real CLI routing against record-only tools: no compiler, App, or GUI runs.
+async function verificationCalls(t, args, inheritedEnv = {}) {
+  const fixture = await mkdtemp(join(tmpdir(), 'paperrss-verification-'));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  const scripts = join(fixture, 'scripts');
+  const bin = join(fixture, 'bin');
+  await Promise.all([mkdir(scripts), mkdir(bin)]);
+  await copyFile(fromRoot('scripts/verify.sh'), join(scripts, 'verify.sh'));
+  const callsPath = join(fixture, 'calls.jsonl');
+  const recorder = `#!${process.execPath}
+const { appendFileSync } = require('node:fs');
+const { basename } = require('node:path');
+appendFileSync(process.env.PAPERRSS_VERIFY_CALLS, JSON.stringify({
+  tool: basename(process.argv[1]), args: process.argv.slice(2),
+  gui: process.env.PAPERRSS_RUN_GUI_TESTS,
+  diagnostics: process.env.PAPERRSS_RUN_MAGAZINE_DIAGNOSTICS,
+}) + '\\n');
+`;
+  for (const tool of ['python3', 'git']) {
+    await writeFile(join(bin, tool), recorder, { mode: 0o755 });
+  }
+  let error;
+  try {
+    await execFileAsync('/bin/bash', [join(scripts, 'verify.sh'), ...args], {
+      env: { ...process.env, ...inheritedEnv, DEVELOPER_DIR: '/fixture/Xcode',
+        PATH: `${bin}:${process.env.PATH}`, PAPERRSS_VERIFY_CALLS: callsPath },
+    });
+  } catch (caught) { error = caught; }
+  const records = await readFile(callsPath, 'utf8').catch((caught) => {
+    if (caught.code === 'ENOENT') return '';
+    throw caught;
+  });
+  return { calls: records.trim() ? records.trim().split('\n').map(JSON.parse) : [], error };
+}
+
+function swiftArgs(calls) {
+  const call = calls.find(({ args }) => args.includes('swift'));
+  assert.ok(call, 'verification must dispatch Swift tests');
+  return call.args.slice(call.args.indexOf('swift'));
+}
+
+test('core verification selects only Core tests and clears inherited GUI opt-ins', async (t) => {
+  const { calls, error } = await verificationCalls(t, ['--core'], {
+    PAPERRSS_RUN_GUI_TESTS: '1', PAPERRSS_RUN_MAGAZINE_DIAGNOSTICS: '1',
+  });
+  assert.ifError(error);
+  const args = swiftArgs(calls);
+  const filter = new RegExp(args[args.indexOf('--filter') + 1]);
+  assert.ok(filter.test('PaperRssCoreTests.DatabaseSchemaTests/testMigration'));
+  assert.equal(filter.test('PaperRssAppTests.MagazineFoldEffectTests/testTurn'), false);
+  assert.equal(calls[0].gui, '0');
+  assert.equal(calls[0].diagnostics, '0');
+});
+
+test('default and all verification retain full Swift, Web, build, and diff coverage without GUI', async (t) => {
+  for (const args of [[], ['--all']]) {
+    const { calls, error } = await verificationCalls(t, args, {
+      PAPERRSS_RUN_GUI_TESTS: '1', PAPERRSS_RUN_MAGAZINE_DIAGNOSTICS: '1',
+    });
+    assert.ifError(error);
+    assert.equal(swiftArgs(calls).includes('--filter'), false);
+    assert.ok(calls.some(({ args }) => args.includes('node') && args.includes('--test')));
+    assert.ok(calls.some(({ args }) => args.includes('xcodebuild')));
+    assert.ok(calls.some(({ tool, args }) => tool === 'git' && args.includes('--check')));
+    assert.ok(calls.every(({ gui, diagnostics }) => gui === '0' && diagnostics === '0'));
+  }
+});
+
+test('feature and custom filter verification do not inherit visible-window permissions', async (t) => {
+  for (const args of [['--feature'], ['--filter', 'MagazineFoldEffectTests']]) {
+    const { calls, error } = await verificationCalls(t, args, {
+      PAPERRSS_RUN_GUI_TESTS: '1', PAPERRSS_RUN_MAGAZINE_DIAGNOSTICS: '1',
+    });
+    assert.ifError(error);
+    assert.equal(calls[0].gui, '0');
+    assert.equal(calls[0].diagnostics, '0');
+  }
+});
+
+test('visible-window regression and diagnostic modes are distinct explicit opt-ins', async (t) => {
+  for (const args of [['--gui'], ['--gui', 'MagazineFoldEffectTests/testRepeatedMetalDrawsReleaseDrawableAndLeaveWindowResponsive']]) {
+    const { calls, error } = await verificationCalls(t, args, { PAPERRSS_RUN_MAGAZINE_DIAGNOSTICS: '1' });
+    assert.ifError(error);
+    assert.equal(calls[0].gui, '1');
+    assert.equal(calls[0].diagnostics, '0');
+    if (args[1]) assert.ok(swiftArgs(calls).includes(args[1]));
+  }
+  const { calls, error } = await verificationCalls(t, ['--diagnostics']);
+  assert.ifError(error);
+  assert.equal(calls[0].gui, '1');
+  assert.equal(calls[0].diagnostics, '1');
+  assert.ok(swiftArgs(calls).includes('MagazineFoldEffectTests/testDiagnoseEdgeLine'));
+});
+
+test('malformed verification commands fail before dispatching tools', async (t) => {
+  for (const args of [['--filter'], ['--core', '--gui'], ['--unknown']]) {
+    const { calls, error } = await verificationCalls(t, args);
+    assert.ok(error);
+    assert.deepEqual(calls, []);
+  }
+});
+
+test('App tests route every foreground presentation through the explicit GUI gate', async () => {
+  const entries = await readdir(fromRoot('AppTests'), { recursive: true });
+  for (const entry of entries.filter((path) => path.endsWith('.swift'))) {
+    if (entry === 'VisibleWindowTestSupport.swift') continue;
+    const source = await readRepoFile(`AppTests/${entry}`);
+    assert.doesNotMatch(source, /\.(?:orderFront|orderFrontRegardless|makeKeyAndOrderFront|activate)\s*\(/,
+      `AppTests/${entry}: foreground presentation must use VisibleWindowTestSupport`);
+  }
+});
 
 async function markdownFiles(path) {
   const absolutePath = fromRoot(path);

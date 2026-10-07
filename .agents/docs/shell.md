@@ -6,12 +6,14 @@
 
 | 脚本 | 作用 | 依赖 | 触发 |
 | --- | --- | --- | --- |
-| `scripts/build-support.py` | 统一构建执行器：泳道锁（app/tests）、超期缓存回收、报告轮转 | 无 | 被下列所有入口调用 |
-| `scripts/verify.sh` | 分级验证矩阵：无参数或 `--all` 全量；`--core`、`--feature`、`--filter <名>`、`--web`、`--build`、`--mathjax-webkit`、`--highlight-webkit`、`--image-invert-webkit` | `build-support.py`、swift、xcodebuild、node | 手动 + CI |
-| `scripts/dev.sh` | 编译并拉起 macOS app；`--isolated [目录]` 起隔离实例（GUI 验收必须使用） | `build-support.py --lane app` | 手动 / Agent |
+| `scripts/build-support.py` | 常规构建与测试共用执行器：泳道锁（app/tests）、超期缓存回收、报告轮转 | 无 | 被常规构建 / 测试入口复用；独立 WebKit 探针除外 |
+| `scripts/verify.sh` | 分级验证：`--core` 仅 Core；`--feature` App 子集；`--filter <名>` 指定回归；无参数或 `--all` 全 Swift + Web + build + diff，默认关闭可见窗口；`--gui [过滤器]` / `--diagnostics` 显式窗口专项；另有 `--web`、`--build` 与三个 WebKit 探针入口 | `build-support.py`、swift、xcodebuild、node | 手动 / Agent / 发布构建；当前 CI 未调用 |
+| `scripts/dev.sh` | 编译并拉起 macOS App；`--isolated [目录]` 隔离数据和构建产物、保留日常实例，但仍共享桌面 | `build-support.py --lane app` | 手动交互 / 显式调试 |
 | `scripts/clean.sh` | 预览回收构建缓存；`--apply` 持锁执行，`--keep-days N` 调固定根保留期 | `build-support.py --clean` | 手动；与构建入口的自动回收同逻辑 |
 
 构建入口每次持锁运行都会顺带回收超期缓存，无需手动调度，也不设置后台定时任务。
+
+四个 `test-*-webkit.sh` 探针独立调用 `swiftc` 并运行探针进程，不经过 `build-support.py`。执行时将完整标准输出与错误输出保存到 `build/reports/`，保留原始退出码，再读取摘要与失败上下文；不要假定统一执行器已自动生成报告。
 
 ## 缓存回收口径
 
@@ -27,7 +29,7 @@
 
 | 脚本 | 作用 | 依赖 | 触发 |
 | --- | --- | --- | --- |
-| `scripts/test.sh` | 启动独立"新用户"实例（`build/FreshLaunchTest`）；`--skip-build` 复用上次构建 | `build-support.py --lane app` | 手动（首启 / 新用户验收） |
+| `scripts/test.sh` | 启动隔离数据的“新用户”实例（`build/FreshLaunchTest`），仍共享桌面；`--skip-build` 复用上次构建 | `build-support.py --lane app` | 手动（首启 / 新用户验收） |
 | `scripts/test-mathjax-webkit.sh` | MathJax Tier3 探针（拉起 WebKit） | Xcode | `verify.sh --mathjax-webkit` 或手动 |
 | `scripts/test-highlight-webkit.sh` | 代码高亮 Tier3 探针 | Xcode | `verify.sh --highlight-webkit` 或手动 |
 | `scripts/test-reader-image-inversion-webkit.sh` | 深色纸面插图反相 Tier3 探针 | Xcode | `verify.sh --image-invert-webkit` 或手动 |
@@ -38,10 +40,10 @@
 
 | 脚本 | 作用 | 依赖 | 触发 |
 | --- | --- | --- | --- |
-| `scripts/release.sh` | 唯一发布编排入口：`build` / `verify` / `publish`，门禁输出 `[PASS]`/`[FAIL]` | `verify.sh --core`、`sparkle/*` | 手动（维护者） |
-| `scripts/build_dmg.sh` | 本地 DMG 打包，不推 Tag、不上传 | `release.sh --local` | 手动 |
+| `scripts/release.sh` | 唯一发布编排入口：`build` / `verify` / `publish`，门禁输出 `[PASS]`/`[FAIL]`；`build` 执行全自动化回归，真实交互另行验收 | `verify.sh --all`、`sparkle/*` | 手动（维护者） |
+| `scripts/build_dmg.sh` | 本地 `release.sh build` 的兼容代理；无参数 / `--help` 显示用法，接受 build 参数或显式 `build`，拒绝 `verify` / `publish` | `release.sh build` | 手动 |
 | `scripts/sparkle/build_with_provenance.sh` | xcodebuild `archive` 并写入源码 provenance | `build-support.py --lane all` | 经 `release.sh build` |
-| `scripts/sparkle/export_and_notarize.sh` | Developer ID 导出 + 签名 / 公证 / Staple / Gatekeeper 门禁（PASS3–6） | Xcode | 经 `release.sh` |
+| `scripts/sparkle/export_and_notarize.sh` | Developer ID 导出 + 签名 / 公证 / Staple / Gatekeeper 门禁（PASS3–6）；启动冒烟默认跳过，显式开关见下文 | Xcode | 经 `release.sh` |
 | `scripts/sparkle/build_artifacts.sh` | 生成 ZIP、DMG 与 manifest | `build_with_provenance.sh`、`artifact_manifest.mjs`、`validate_artifacts.sh` | 经 `release.sh` |
 | `scripts/sparkle/validate_artifacts.sh` | 产物与 manifest 一致性校验 | `artifact_manifest.mjs` | 经 `build_artifacts.sh` |
 | `scripts/sparkle/artifact_manifest.mjs` | manifest 生成与校验（架构名归一化、签名、摘要） | `lipo`、`plutil`、`unzip`、`hdiutil` | 经上游脚本 |
@@ -55,6 +57,8 @@
 | `scripts/sparkle/local_https_feed_server.mjs` | 本地临时 HTTPS feed 服务 | node | 经 `prepare_local_real_upgrade.sh` |
 | `scripts/sparkle/test-local-upgrade.sh` | 执行 `Tests/sparkle-upgrade-recovery.test.mjs` | node `--test` | 手动 |
 | `scripts/sparkle/release.env` | 发布凭据与配置，`release.env.example` 为模板（`.env` 不入库） | — | 手动维护 |
+
+启动冒烟默认输出 `[SKIP]`，不代表启动已验证。只有 `PAPERRSS_RUN_LAUNCH_SMOKE=1` 且未设置 `PAPERRSS_SKIP_LAUNCH_SMOKE` 时才启动导出产物；使用临时 `CFFIXED_USER_HOME` 隔离数据，跟踪自己启动的 PID 并观察完整 3 秒，退出时只清理该进程。它仍可能显示窗口或取得焦点；需要无打扰时，在经过验证的独立图形会话中运行。存活探针不替代发布真实交互门禁。
 
 ## 按需：素材与预览
 
@@ -76,7 +80,7 @@ verify.sh ─┼──► build-support.py ──► 泳道锁 + 缓存回收 + 
 archive.sh ┤                          └── xcodebuild / swift test / node --test
 clean.sh ──┘
 
-release.sh ──► verify.sh --core
+release.sh ──► verify.sh --all
            ├──► sparkle/build_with_provenance.sh ──► build_artifacts.sh
            │                                        ├── artifact_manifest.mjs
            │                                        └── validate_artifacts.sh
@@ -88,5 +92,7 @@ release.sh ──► verify.sh --core
 
 | 工作流 | 触发 | 执行 |
 | --- | --- | --- |
-| `deploy-pages.yml` | push `main` 且改动 `website/**` 或赞赏预览脚本；每 12 小时 cron；手动 | `capture-sponsors-preview.py` 后部署 Pages |
+| `deploy-pages.yml` | push `main` 且改动 `website/**`、本工作流或赞赏预览脚本 / 依赖；每 12 小时 cron；手动 | 更新 stars / 赞赏预览后部署 Pages，并同步官网服务器 |
 | `sync-release-server.yml` | 正式 Release 发布（非 prerelease）自动触发；手动 | 经 SSH 同步发布服务器资产 |
+
+这两个 CI 工作流负责部署与分发，没有执行 `verify.sh`。它们运行成功不能替代代码回归或发布候选的交互验收。
