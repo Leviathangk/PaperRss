@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | `scripts/build-support.py` | 常规构建与测试共用执行器：泳道锁（app/tests）、超期缓存回收、报告轮转 | 无 | 被常规构建 / 测试入口复用；独立 WebKit 探针除外 |
 | `scripts/verify.sh` | 分级验证：`--core` 仅 Core；`--feature` App 子集；`--filter <名>` 指定回归；无参数或 `--all` 全 Swift + Web + build + diff，默认关闭可见窗口；`--gui [过滤器]` / `--diagnostics` 显式窗口专项；另有 `--web`、`--build` 与三个 WebKit 探针入口 | `build-support.py`、swift、xcodebuild、node | 手动 / Agent / 发布构建；当前 CI 未调用 |
-| `scripts/dev.sh` | 编译并拉起 macOS App；`--isolated [目录]` 隔离数据和构建产物、保留日常实例，但仍共享桌面 | `build-support.py --lane app` | 手动交互 / 显式调试 |
+| `scripts/dev.sh` | 编译并拉起 macOS App；`--icloud` 选择 CloudKit Development 签名并自动 provisioning；`--build-only` 只构建、不启动或关闭实例；`--isolated [目录]` 隔离本机数据和构建产物、保留日常实例，但仍共享桌面且不能与 `--icloud` 合用 | `build-support.py --lane app` | 手动交互 / 显式调试；构建检查用 `--build-only` |
 | `scripts/clean.sh` | 预览回收构建缓存；`--apply` 持锁执行，`--keep-days N` 调固定根保留期 | `build-support.py --clean` | 手动；与构建入口的自动回收同逻辑 |
 
 构建入口每次持锁运行都会顺带回收超期缓存，无需手动调度，也不设置后台定时任务。

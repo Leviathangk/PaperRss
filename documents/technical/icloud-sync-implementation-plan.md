@@ -1,7 +1,7 @@
 # iCloud 同步实施方案
 
 > 设计日期：2026-10-01。范围：现有 macOS 14+、Swift 6、GRDB、AccountProvider 架构。
-> 状态：macOS 优先，P1–P3 的同步、账号／设置、RSS 正文和保守复制路径已实现；P4 已有自动同步、推送、重试、统计、恢复／只读归档和物理代次隔离。清理已接通共享配额、持久化有限任务、条件删除 SDK、独立时间校验确认、审阅／停止／进度页面和 Provider 生命周期；按页发现不依赖全库统计完成。2026-10-05 补齐默认关闭的持续维护授权、后续有限批次发现及原请求结果的只读复核。另有保留旧云资料、准备空的新代次的审阅入口，归档接入及具体复制仍分别确认。普通建库默认 v2，清理与升级默认不启用。签名、双 Mac／真实 SDK、页面交互、无法确认结果的任务结束规则及最终历史兼容／隐私验收留给维护者。本轮没有启动正式 App、访问实际云库或执行正式资料处置。阶段证据见第 9 节，目标行为不代表已经上线。
+> 状态：macOS 优先，P1–P3 的同步、账号／设置、RSS 正文和保守复制路径已实现；P4 已有自动同步、推送、重试、统计、恢复／只读归档和物理代次隔离。清理已接通共享配额、持久化有限任务、条件删除 SDK、独立时间校验确认、审阅／停止／进度页面和 Provider 生命周期；按页发现不依赖全库统计完成。2026-10-05 补齐默认关闭的持续维护授权、后续有限批次发现及原请求结果的只读复核。另有保留旧云资料、准备空的新代次的审阅入口，归档接入及具体复制仍分别确认。普通建库默认 v2，清理与升级默认不启用。2026-10-08 完成 macOS Development 签名、指定容器权限及共享运行方案，见第 13 节。双 Mac／真实 SDK、页面交互、无法确认结果的任务结束规则及最终历史兼容／隐私验收留给维护者。本轮没有启动正式 App、读写实际云端阅读资料或执行正式资料处置。阶段证据见第 9 节，目标行为不代表已经上线。
 
 ## 1. 结论与现状
 
@@ -195,6 +195,8 @@ CloudKit 网络/限流重试交给 engine，并尊重 retryAfter；本地 journa
 ## 7. 签名、环境与发布
 
 使用现有模板 container `iCloud.com.yangbukun.PaperRss`，先核实该 container 在维护者 Team 下存在。开发/生产使用匹配环境的签名及 provisioning，不在仓库保存证书或 profile。
+
+2026-10-08 已按维护者授权完成 Development 自动 provisioning，并核对签名产物及内嵌 profile 的 Team、Mac App ID、指定 container 和开发推送权限。Xcode 使用共享 `PaperRss iCloud` scheme／`Debug-iCloud` 配置运行；普通 Debug 和 Release 的签名设置保留原值。具体构建、环境边界及人工验收步骤见第 13 节。
 
 P2/P4 接入 Xcode capability、实际 entitlements、推送及 App delegate 桥接；开发先只使用 Development private database。生产 schema 部署、远端云数据修改及公开发布在相应阶段单独执行，不能通过本轮本地基础开发冒充已验收。保留 ad-hoc 构建无权限时可正常阅读、无法启用同步的体验。
 
@@ -567,7 +569,7 @@ P1 不增加入口让用户把正式 local-default 直接上传，不启动 CKCo
 | 云端保留与清理 | 2026-10-02 已确认状态保留 183 天、每周最多处理 400 条，并保留收藏、允许同步的未读正文、新近修改和本机待办。该规则改变新设备的历史恢复范围，未授权真实删除 | 屏障、共享配额、固定 ID 核验、有限任务／持续维护授权、原子 SDK、停止／进度、后台分页发现与原结果只读复核已实现；全部默认关闭。普通建库仍为 v2，升级仅提供另行确认的保留旧云范围模式。持续维护分别确认历史影响、未来文章和额外时间写入。原账本证据不足的任务保留，结束或另开任务规则仍需审阅；真实并发、签名、具体启用和最终隐私审阅由维护者验收，未执行正式删除 |
 | 仍无法确认的原清理请求 | 原编号及摘要保留；有充分证据时只读确认成功。原账本已经过期或缺少证据时，须先审阅人工结束、另开任务或建立新范围的规则及历史影响 | 只读复核入口已实现，没有默认放弃原记录并重新删除的动作；未替维护者批准新的实际资料处置 |
 | 系统账号退出／云端清除 | 2026-10-02 已确认保留只读本机归档：旧文章、收藏和本机 AI 产物原位保留，停止刷新与同步；当前云库使用全新范围，旧资料另行选择复制。独立本地账号保持完整。该选择不执行正式资料处置 | 原账号同代次恢复、只读归档／新范围事务、持久化保护、只读 transport、生命周期协调与两次确认 UI 已实现；归档阅读／按来源复制和经核验空库的独立建库确认已接入，真实页面交互及已签名的 SDK 行为待人工验收。实际残留处理另行确认，未暴露删除入口 |
-| 开发签名及容器 | 使用已配置的 Team 和 iCloud.com.yangbukun.PaperRss，只在 Development 环境联调。先确认容器存在及所属 Team，再配置对应 App ID、profile；Production 部署另列发布验收 | 有本地构建配置和失败证据，没有创建不可撤销的容器或修改线上云资料 |
+| 开发签名及容器 | 使用已配置的 Team 和 iCloud.com.yangbukun.PaperRss，只在 Development 环境联调；Production 部署另列发布验收 | 2026-10-08 完成授权的自动 provisioning、共享运行 scheme、原生构建及实际 entitlement／内嵌 profile 核验。真实 SDK 与双 Mac 功能由维护者验收；云端 schema 现状未导出核实，Production 未部署，详见第 13 节 |
 | 公开隐私／帮助说明 | 发布前说明哪些数据进入私有 CloudKit、正文选项、退出与删除效果；不承诺未经核实的端到端加密 | 尚未发布网页、隐私声明或新版本 |
 
 最后人工验收保留给维护者：两台 Mac 的首次恢复、断网修改与重启、阅读／收藏和目录并发、已从 RSS 移除的收藏正文恢复、系统账号切换、云端清除、限流／空间不足、最终隐私文案及签名分发。还需验证首次连接失败后，不操作 App 也能在等待到期时自动恢复，以及重开 App 和多次前台刷新不会绕过服务器 retryAfter。自动化通过不能替代这些真实环境检查。
@@ -665,3 +667,88 @@ ICloudRetentionDiscoveryScanner 每次最多 10 页、2,000 条、400 个文章�
 2026-10-05 本轮只读复核正式库 quick_check=ok，v22 已存在，v23 尚未应用；iCloud 账号／scope／journal 均为 0。核验前后主文件及 WAL 的大小／内容修改时间未变。旧只读归档和现有有限批准的 v22→v23 兼容在临时资料库验证，正式库没有由本轮代码执行迁移。
 
 独立诊断复测：既有刷新性能用例 testThreeHundredFeedRefreshKeepsMainActorResponsive 在未修改源代码时通过（run-02pt78rc.log，1 项、5.533 秒、退出码 0），最终全量中也通过（run-uxzntjq2.log，5.389 秒）。本轮没有复现上轮通知次数 102 的失败，也未修改刷新生产实现；不能据此断言偶发原因，原失败证据继续保留。
+
+## 13. 2026-10-08 Development 配置交付与人工验收
+
+维护者授权完成配置，并保留真实 iCloud 功能验收。本阶段只调整 macOS 工程配置、申请匹配的开发签名资源和构建；没有启动正式 PaperRss，没有创建应用内 iCloud 账号或复制、上传、归档、清理阅读资料。
+
+### 13.1 已完成的配置
+
+| 配置项 | 当前值及证据 |
+| --- | --- |
+| 运行入口 | 共享 `PaperRss iCloud` scheme，全部动作使用 `Debug-iCloud`；目标为 macOS PaperRss |
+| 开发签名 | `Automatic`、`Apple Development`、现有 Team `LGKLTGNTY2`，Bundle ID `com.yangbukun.PaperRss` |
+| iCloud 权限 | 实际 App 包含 `CloudKit`、`iCloud.com.yangbukun.PaperRss`、`Development` 及开发推送 entitlement；指定 entitlement 文件已接入新配置 |
+| Xcode capability | macOS target 标记 iCloud、Push Notifications；工程中 iOS target 未接入本次云端配置 |
+| 描述文件 | 自动 provisioning 取得未过期的 Mac profile，匹配 Team／App ID，允许指定 container、CloudKit、Development 和开发推送；已嵌入 App |
+| 构建架构 | 本次为 arm64；开发配置只构建当前 Mac 架构，Swift 使用 `-Onone`、`DEBUG` |
+| 签名完整性 | `codesign --verify --deep --strict` 通过；App 允许 Xcode 调试器连接 |
+| 既有入口 | 普通 `PaperRss` Debug、Release 和原隔离开发入口继续使用原签名设置；验证 iCloud 使用新 scheme 或 `dev.sh --icloud` |
+
+执行的是 `xcodebuild -allowProvisioningUpdates -allowProvisioningDeviceRegistration` 的自动配置流程。实际 profile 是指定 Team／App ID／container 已获开发权限的证据；未读取开发者门户的容器详情，不把该结果表述为已审阅云端数据或完成同步。
+
+首次构建因新配置让 App 编译 arm64／x86_64、而 Swift 包只产出当前 arm64 模块而失败（run-_hcfw_gi.log，退出码 65）。配置补入 `ONLY_ACTIVE_ARCH=YES` 和明确的 Swift 调试优化后，签名构建退出码 0；该中间日志 run-tm9q5oji.log 出现一条退出码为 0 的编译任务诊断，未将其作为最终无错误证据。最后原生构建 run-zu3jz56w.log 明确 `BUILD SUCCEEDED`、退出码 0，且无 `error:`。最终产物另做 18 项签名／profile 检查，全部通过，摘要与二进制 SHA-256 保存在 `build/reports/icloud-development-signing-20261008.json`。未改业务 Swift 源码，本阶段不重复全量行为测试；此前行为回归见第 9 节的 2026-10-05 检查点。
+
+### 13.2 如何开始验证
+
+1. 先退出当前正在运行的 PaperRss，避免同时打开多个版本读写同一份本机库。
+2. 在仓库根目录运行 `./scripts/dev.sh --icloud`，或用 Xcode 打开 `PaperRss.xcodeproj`，选择 **PaperRss iCloud → My Mac**，运行。此入口使用 Development 私有云库，应用内仍是独立 iCloud 账号，与“我的 Mac”、FreshRSS、Miniflux 并列；系统 iCloud 身份取自 macOS 系统设置。已有开发账号、证书和 profile 时无需打开 Xcode GUI 配置。
+3. 在账号设置中添加 **iCloud**，先用一条公开 RSS 订阅验证。添加账号不自动复制“我的 Mac”资料；现有资料继续通过单独的复制审阅入口处理。
+4. 在第二台 Mac 的系统设置登录同一个 iCloud 账号，使用同一 scheme 构建运行并添加 iCloud 账号。该 Mac 使用其自己的 Xcode 自动签名／设备注册；本次没有替第二台 Mac 完成 provisioning。本次 arm64 开发产物不能当作任意 Mac 可安装的发行包。
+5. 按下表验收真实行为。最后的签名分发及 Production schema 部署仍属于发布阶段。
+
+终端入口已支持 iCloud 开发；在仓库根目录执行：
+
+```sh
+./scripts/dev.sh --icloud              # 构建并启动 iCloud Development 版本
+./scripts/dev.sh --icloud --build-only # 只构建，不启动或关闭 App
+./scripts/dev.sh                       # 普通本机 Debug 构建并启动
+```
+
+`--icloud` 选择共享 `PaperRss iCloud` scheme／`Debug-iCloud`，并允许 Xcode 自动更新开发 provisioning／注册当前 Mac；它使用对应配置的产物路径。原 `--isolated` 使用独立 Bundle ID，不能与绑定正式 App ID 的 `--icloud` 合用。普通 `PaperRss` scheme 现已显式共享，避免仅新增 iCloud scheme 后，原自动生成 scheme 不再被命令行发现。
+
+需要直接调用构建器时，以下命令只构建、不启动 App：
+
+```sh
+python3 scripts/build-support.py --lane app -- xcodebuild \
+  -project PaperRss.xcodeproj \
+  -scheme 'PaperRss iCloud' \
+  -configuration Debug-iCloud \
+  -destination 'platform=macOS' \
+  -derivedDataPath build \
+  -allowProvisioningUpdates \
+  -allowProvisioningDeviceRegistration build
+```
+
+本次签名产物为 `build/Build/Products/Debug-iCloud/PaperRss.app`。不带 `--icloud` 的 `scripts/dev.sh` 仍使用原 Debug；`--build-only` 在关闭已有实例和启动 App 前返回。
+
+### 13.3 云端 schema 与查询边界
+
+Development 支持首次程序写入时建立 record type／字段，并在开发时为可用于谓词的字段建立索引。当前传输只有两个 record type：`PaperRssLibraryRootV1`（`schemaVersion` 整数、`generation`／`phase` 字符串）及 `PaperRssRecordV1`（`envelope`／`content` 字节、`contentAsset` 资产）。正常同步使用按 ID 的读取和 CKSyncEngine 变更流；云端统计／历史发现使用 `PaperRssRecordV1` 的 `creationDate` 谓词。无需为本次开发联调预先部署 Production schema。[Apple schema 创建说明](https://developer.apple.com/documentation/cloudkit/inspecting-and-editing-an-icloud-container-s-schema)、[Apple CKQuery 索引说明](https://developer.apple.com/documentation/cloudkit/ckquery)。
+
+本机 cktool 没有管理 token，导出 schema 的只读请求在认证前退出；配置页也未建立可用会话，因此没有核实当前远端 record type 或索引。不能将文档所述默认开发行为当作该容器已验收的证据。人工验收应包含首次建库后“查看云端记录”的完整结果；如果服务明确报告 `creationDate` 不可查询，需在同一 container 的 **Development → Schema → Indexes** 为 `PaperRssRecordV1.creationDate` 添加 `QUERYABLE`，随后重新验证。按 record type 在控制台浏览还需 `recordName` 的 `QUERYABLE`，它与 App 的同步变更流不同。此处不要求新建管理 token 或重置云库；控制台查询能力说明见同一 [Apple schema 文档](https://developer.apple.com/documentation/cloudkit/inspecting-and-editing-an-icloud-container-s-schema)。
+
+### 13.4 由维护者完成的功能验收
+
+| 操作 | 应观察到的结果 |
+| --- | --- |
+| 首次添加 iCloud 与订阅 | 无签名权限错误；iCloud 账号独立显示，原本机／服务器账号资料保持各自范围 |
+| 两台 Mac 的订阅与目录 | 添加、移动、重命名、删除能双向到达，重开后保持，删除项不复活 |
+| 阅读和收藏 | 已读／未读、收藏／取消收藏双向到达；并发不同字段的修改可以同时保留 |
+| 断网修改与重启 | 待发送意图保留；恢复网络后自动推进，最终队列收敛 |
+| 收藏正文恢复 | 新设备能恢复允许同步的收藏 RSS 正文；未读正文默认关闭，开启后按资格同步 |
+| 推送及启动重试 | 另一台修改后自动到达；首次临时失败会等待后自动重试，重开和前台刷新不绕过服务器等待 |
+| 查看云端记录 | 扫描完整，错误不显示为零记录；查询索引与分页实际可用 |
+| 账号与旧范围恢复 | 原账号同代次恢复、切换／新范围只读归档页面按确认规则工作；旧资料没有自动进入新身份 |
+
+云端重置、正式历史复制和清理属于各自明确审阅后的测试，不作为第一轮基础同步验证的默认操作。清理和持续维护授权保持原默认关闭；本阶段没有改变用户已确认的保守规则、只读归档或 183 天／每周 400 条规则。
+
+### 13.5 终端入口修复与验证
+
+维护者反馈原 `dev.sh` 的 `-scheme PaperRss` 无法找到方案（run-dfkuw136.log，退出码 65）。此前新增 iCloud 共享方案时遗漏了普通 `PaperRss` 的共享定义，本轮补回普通方案，并保留 Debug 运行／Release 归档配置。`dev.sh` 新增 `--icloud` 和 `--build-only`，按实际配置选择产物路径，开发构建仅编译当前 Mac 架构；帮助、参数次序、隔离入口及异常参数一并核对。
+
+语法和 XML 检查通过；9 项临时替身契约通过（run-ohq1gst9.log，退出码 0），覆盖普通／iCloud 的配置与启动产物、参数次序、隔离构建、冲突参数、缺产物先失败，以及 `--build-only` 不启动或关闭实例。只启动了临时 shell 替身，没有启动 PaperRss。
+
+首次沙箱构建被用户目录中的 SwiftPM／Clang 缓存写入权限阻止（run-miufmwku.log，退出码 74），不是源代码或 scheme 失败。经授权在沙箱外执行实际入口后，`dev.sh --icloud --build-only` 通过（run-k_ooz4wy.log，退出码 0），`dev.sh --build-only` 通过（run-hz12lmag.log，退出码 0）。使用本机 codesign 手册指定的 `--entitlements - --xml` 在沙箱外核验：iCloud 产物含指定 container、CloudKit、Development、开发推送和有效匹配的内嵌 profile；普通 Debug 未带 CloudKit 权限；两者 `--verify --deep --strict` 均通过。最新摘要及二进制散列保存在 `build/reports/devsh-signing-check.json`。
+
+本轮没有启动真实 App，也没有更改正式阅读资料或完成实际云端功能验收。维护者可直接用 `./scripts/dev.sh --icloud` 开始第 13.4 节的测试，无需每次打开 Xcode GUI。
