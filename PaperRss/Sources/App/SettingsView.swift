@@ -542,20 +542,26 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(I18N.shared.localized("我的 Mac (本地账号)"))
                             .font(.system(size: 14, weight: .semibold))
-                        Button(I18N.localized("查看 iCloud 复制预览", englishFallback: "Preview Copy to iCloud")) {
-                            accountSettingsSheet = .migrationPreview
+                        if store.accounts.contains(where: { $0.type == AccountType.iCloud.rawValue }) {
+                            Menu {
+                                Button(I18N.localized("选择并复制到 iCloud…", englishFallback: "Select and Copy to iCloud…")) {
+                                    accountSettingsSheet = .localCopy
+                                }
+                                .accessibilityIdentifier("icloud.localCopy")
+                                Button(I18N.localized("查看 iCloud 复制预览", englishFallback: "Preview Copy to iCloud")) {
+                                    accountSettingsSheet = .migrationPreview
+                                }
+                                .accessibilityIdentifier("icloud.localMigrationPreview")
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "arrow.triangle.2.circlepath.icloud")
+                                    Text(I18N.localized("复制订阅到 iCloud…", englishFallback: "Copy Subscriptions to iCloud…"))
+                                }
+                                .font(.caption)
+                                .foregroundStyle(settingsAccentColor)
+                            }
+                            .menuStyle(.borderlessButton)
                         }
-                        .buttonStyle(.plain)
-                        .font(.caption)
-                        .foregroundStyle(settingsAccentColor)
-                        .accessibilityIdentifier("icloud.localMigrationPreview")
-                        Button(I18N.localized("选择并复制到 iCloud…", englishFallback: "Select and Copy to iCloud…")) {
-                            accountSettingsSheet = .localCopy
-                        }
-                        .buttonStyle(.plain)
-                        .font(.caption)
-                        .foregroundStyle(settingsAccentColor)
-                        .accessibilityIdentifier("icloud.localCopy")
                     }
 
                     Spacer()
