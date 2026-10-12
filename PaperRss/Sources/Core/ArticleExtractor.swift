@@ -914,6 +914,50 @@ public enum ArticleExtractor {
         return (plan, gapAfter)
     }
 
+    private struct ReaderListItem {
+        let gapBefore: String
+        let html: String
+        let isTranslatable: Bool
+    }
+
+    private static func listItemFragments(in block: String) -> (items: [ReaderListItem], gapAfter: String)? {
+        let itemPattern = "(?is)<li\\b((?:[^>\"']|\"[^\"]*\"|'[^']*')*)>([\\s\\S]*?)</li>"
+        guard let expression = try? NSRegularExpression(pattern: itemPattern) else { return nil }
+        let range = NSRange(block.startIndex..., in: block)
+
+        var items: [(fragment: String, isTranslatable: Bool)] = []
+        var gaps: [String] = []
+        var cursor = block.startIndex
+        for match in expression.matches(in: block, range: range) {
+            guard let fullRange = Range(match.range, in: block),
+                  let innerRange = Range(match.range(at: 2), in: block) else { return nil }
+            let inner = block[innerRange].lowercased()
+            // 嵌套列表或表格：非贪婪匹配会让外层片段提前闭合，拆分结果结构不可信，整表/整列表保留。
+            guard !inner.contains("<ul"), !inner.contains("<ol"), !inner.contains("<table"), !inner.contains("<li") else { return nil }
+            gaps.append(String(block[cursor..<fullRange.lowerBound]))
+            let fragment = String(block[fullRange])
+            let itemText = fragment.plainText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let isTranslatable = !itemText.isEmpty
+                && !inner.contains("<pre")
+                && !ArticleMathDetector.strippingFormulas(in: itemText)
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            items.append((fragment, isTranslatable))
+            cursor = fullRange.upperBound
+        }
+        let gapAfter = String(block[cursor...])
+        guard items.contains(where: { $0.isTranslatable }) else { return nil }
+
+        // 完整性校验：项之间的空隙必须只有结构空白（列表容器空隙），不允许承载可见文本。
+        guard gaps.allSatisfy({
+            $0.plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }) else { return nil }
+
+        let plan = items.enumerated().map { index, item in
+            ReaderListItem(gapBefore: gaps[index], html: item.fragment, isTranslatable: item.isTranslatable)
+        }
+        return (plan, gapAfter)
+    }
+
     /// 段落拆分的统一入口。`tablePlan` 非 nil 表示该表格拆分成了单元格级
     /// 翻译单元；`fragments` 只含可翻译单元格（段落 ID 依此编号），
     /// 不可翻译单元格与结构空隙由渲染层按拆分计划原样保留。
@@ -921,23 +965,31 @@ public enum ArticleExtractor {
     private static func readerBlockFragmentPlan(
         _ block: String,
         match: ReaderBlockMatch
-    ) -> (fragments: [String], tablePlan: (cells: [ReaderTableCell], gapAfter: String)?, isPreformatted: Bool) {
+    ) -> (
+        fragments: [String],
+        tablePlan: (cells: [ReaderTableCell], gapAfter: String)?,
+        listPlan: (items: [ReaderListItem], gapAfter: String)?,
+        isPreformatted: Bool
+    ) {
         if match.tag == "table", let tablePlan = tableCellFragments(in: block) {
-            return (tablePlan.cells.filter(\.isTranslatable).map(\.html), tablePlan, false)
+            return (tablePlan.cells.filter(\.isTranslatable).map(\.html), tablePlan, nil, false)
+        }
+        if (match.tag == "ul" || match.tag == "ol"), let listPlan = listItemFragments(in: block) {
+            return (listPlan.items.filter(\.isTranslatable).map(\.html), nil, listPlan, false)
         }
         if block.range(of: "(?is)<pre\\b", options: .regularExpression) != nil {
-            return ([block], nil, true)
+            return ([block], nil, nil, true)
         }
         for adapter in ReaderBlockAdapter.allCases {
             if let fragments = adapter.fragments(for: block, tag: match.tag, hasNestedBlock: match.hasNestedReaderBlock) {
                 // 新增适配策略也必须保留文本及非布局标签的顺序、属性；失败则尝试保留策略。
-                if fragments.count == 1 && fragments[0] == block { return (fragments, nil, false) }
+                if fragments.count == 1 && fragments[0] == block { return (fragments, nil, nil, false) }
                 if readerContentSignature(block) == readerContentSignature(fragments.joined()) {
-                    return (fragments, nil, false)
+                    return (fragments, nil, nil, false)
                 }
             }
         }
-        return ([block], nil, false)
+        return ([block], nil, nil, false)
     }
 
     /// p/br 是允许改写的分段标记，其余标签（含媒体与链接属性）必须逐一保持。
@@ -1091,6 +1143,34 @@ public enum ArticleExtractor {
                 paragraphIndex += 1
                 continue
             }
+            if let listPlan = plan.listPlan {
+                // 列表项级翻译：译文插在 </li> 闭合之前，使原文与译文保持在同一列表项内，
+                // 避免在 <ul>/<ol> 中插入非法的直接兄弟节点破坏列表排版与序号。
+                let translatableCount = listPlan.items.filter(\.isTranslatable).count
+                var itemIndex = 0
+                for item in listPlan.items {
+                    rendered += item.gapBefore
+                    guard item.isTranslatable else {
+                        rendered += item.html
+                        continue
+                    }
+                    let id = translatableCount > 1 ? "p\(paragraphIndex)_\(itemIndex)" : "p\(paragraphIndex)"
+                    itemIndex += 1
+                    let translationHTML: String?
+                    if let segment = segmentsByID[id],
+                       item.html.plainText.isSameReaderParagraph(as: segment.original) {
+                        translationHTML = translationMarkup(for: segment.translation, id: id)
+                    } else if pendingIDs.contains(id) {
+                        translationHTML = pendingTranslationMarkup(for: id)
+                    } else {
+                        translationHTML = nil
+                    }
+                    rendered += annotatedListItem(item.html, id: id, translationHTML: translationHTML)
+                }
+                rendered += listPlan.gapAfter
+                paragraphIndex += 1
+                continue
+            }
 
             let fragments = plan.fragments
             for (index, fragment) in fragments.enumerated() {
@@ -1124,6 +1204,19 @@ public enum ArticleExtractor {
         let closingTag = output.lowercased().hasPrefix("<th") ? "</th>" : "</td>"
         guard let closingRange = output.range(of: closingTag, options: .backwards) else { return output }
         output.insert(contentsOf: translationHTML, at: closingRange.lowerBound)
+        return output
+    }
+
+    /// 列表项片段：注解落在 li 开标签，译文插在 </li> 闭合标签之前，
+    /// 使原文与译文始终停留在同一个列表项内。
+    private static func annotatedListItem(_ itemHTML: String, id: String, translationHTML: String?) -> String {
+        var output = annotatedReaderBlock(itemHTML, id: id)
+        guard let translationHTML else { return output }
+        if let closingRange = output.range(of: "</li>", options: [.backwards, .caseInsensitive]) {
+            output.insert(contentsOf: translationHTML, at: closingRange.lowerBound)
+        } else {
+            output += translationHTML
+        }
         return output
     }
 

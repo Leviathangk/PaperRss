@@ -193,10 +193,19 @@ public struct LLMService: Sendable {
         return try await nonStreaming(request: urlRequest)
     }
 
+    public static func summarySystemPrompt(configuration: LLMConfiguration) -> String {
+        var systemPrompt = "Summarize the article in \(configuration.targetLanguage). Start with one concise conclusion, then give 3 to 7 factual bullets. Keep each bullet concise and focused on key facts. Keep the entire summary concise and within roughly 300 words. Do not invent sources or facts."
+        let trimmedCustom = configuration.customPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedCustom.isEmpty {
+            systemPrompt += "\n\nAdditional user preference: \(trimmedCustom)"
+        }
+        return systemPrompt
+    }
+
     public func summary(text: String, configuration: LLMConfiguration, apiKey: String, onDelta: (@Sendable (String) async -> Void)? = nil) async throws -> String {
         try await complete(
             prompt: "Article:\n\n\(ArticleChunker.truncate(text, maximumCharacters: 28_000))",
-            system: "Summarize the article in \(configuration.targetLanguage). Start with one concise conclusion, then give 3 to 7 factual bullets. Do not invent sources or facts.",
+            system: Self.summarySystemPrompt(configuration: configuration),
             configuration: configuration, apiKey: apiKey, onDelta: onDelta
         )
     }

@@ -2152,6 +2152,9 @@ h4 + .paper-rss-translation, h5 + .paper-rss-translation, h6 + .paper-rss-transl
 }
 blockquote + .paper-rss-translation {
   font-family: "New York", "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  border-left: 2px solid var(--paper-warm);
+  padding: .08em 0 .08em 1em;
+  margin: -.5em 0 1.25em;
 }
 .paper-rss-translation-label {
   position: relative;
@@ -2190,6 +2193,12 @@ blockquote + .paper-rss-translation {
 td > .paper-rss-translation, th > .paper-rss-translation {
   display: block;
   margin: .35em 0 0;
+}
+/* 列表项内译文：保持本项对照，消除块级负边距与列表符号干扰 */
+li > .paper-rss-translation {
+  display: block;
+  margin: .35em 0 .5em;
+  list-style: none;
 }
 .paper-rss-translation.is-loading {
   color: var(--paper-muted);
@@ -2431,8 +2440,8 @@ enum PaperReaderBridge {
       if (!aside) {
         aside = makeTranslation(update);
         // 表格单元格的译文必须放进本格内部；afterend 会把译文插成 tr 的
-        // 非法子元素，破坏表格结构。
-        const placement = (source.tagName === "TD" || source.tagName === "TH") ? "beforeend" : "afterend";
+        // 非法子元素，破坏结构。
+        const placement = (source.tagName === "TD" || source.tagName === "TH" || source.tagName === "LI") ? "beforeend" : "afterend";
         source.insertAdjacentElement(placement, aside);
       }
       aside.classList.toggle("is-loading", Boolean(update.isLoading));
@@ -7689,6 +7698,8 @@ struct ReaderCapsuleToolbar: View {
     var canOpenOriginal: Bool = false
     var openOriginalKeyHint: String = ""
     var onOpenOriginal: () -> Void = {}
+    var articleURL: URL? = nil
+    var articleTitle: String = ""
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.paperAppearancePalette) private var appearancePalette
@@ -7752,6 +7763,21 @@ struct ReaderCapsuleToolbar: View {
             .buttonStyle(.plain)
             .disabled(!canOpenOriginal)
             .accessibilityLabel(openOriginalAccessibilityLabel)
+
+            if let articleURL {
+                ShareLink(item: articleURL, subject: Text(articleTitle)) {
+                    toolbarSymbol("square.and.arrow.up", isActive: false)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(I18N.shared.localized("共享文章", "Share Article"))
+            } else {
+                Button(action: {}) {
+                    toolbarSymbol("square.and.arrow.up", isActive: false)
+                }
+                .buttonStyle(.plain)
+                .disabled(true)
+                .accessibilityLabel(I18N.shared.localized("共享文章", "Share Article"))
+            }
         }
         .padding(.horizontal, 6)
         .frame(height: 28)

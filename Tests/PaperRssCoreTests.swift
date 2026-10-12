@@ -701,6 +701,25 @@ final class PaperRssCoreTests: XCTestCase {
         XCTAssertEqual(collector.all, ["第一", "第二", "第三"])
         XCTAssertEqual(result, "第一第二第三")
     }
+    func testSummarySystemPromptIncludesLengthLimitAndCustomPrompt() {
+        var config = LLMConfiguration(
+            baseURL: "https://example.com/v1",
+            model: "test-model",
+            temperature: 0.2,
+            targetLanguage: "简体中文",
+            allowInsecureLocalEndpoint: false
+        )
+        let defaultPrompt = LLMService.summarySystemPrompt(configuration: config)
+        XCTAssertTrue(defaultPrompt.contains("300 words"))
+        XCTAssertTrue(defaultPrompt.contains("concise"))
+        XCTAssertFalse(defaultPrompt.contains("Additional user preference:"))
+
+        config.customPrompt = "语气严肃，重点突出商业影响，150 字以内"
+        let customPrompt = LLMService.summarySystemPrompt(configuration: config)
+        XCTAssertTrue(customPrompt.contains("300 words"))
+        XCTAssertTrue(customPrompt.contains("Additional user preference: 语气严肃，重点突出商业影响，150 字以内"))
+    }
+
 
     func testBatchTranslationDecoderOnlyAcceptsOrderedJSON() throws {
         XCTAssertEqual(

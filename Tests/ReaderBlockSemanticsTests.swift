@@ -120,11 +120,13 @@ final class ReaderBlockSemanticsTests: XCTestCase {
 
         let paragraphs = ArticleExtractor.readerParagraphs(in: source)
         // 单元格是翻译单元；纯公式单元格（$L$、$(\mathbf{x}^l, y)$）不进入翻译管线。
-        XCTAssertEqual(paragraphs.map(\.id), ["p0_0", "p0_1", "p0_2", "p0_3", "p1"])
-        XCTAssertEqual(paragraphs.map(\.original), ["Symbol", "Meaning", "Number of unique labels.", "Labeled dataset.", "第一项\n\n第二项"])
+        // 列表各项（li）为独立翻译单元（Issue #44 优化）。
+        XCTAssertEqual(paragraphs.map(\.id), ["p0_0", "p0_1", "p0_2", "p0_3", "p1_0", "p1_1"])
+        XCTAssertEqual(paragraphs.map(\.original), ["Symbol", "Meaning", "Number of unique labels.", "Labeled dataset.", "第一项", "第二项"])
 
         let translations = [
-            ("p0_0", "符号"), ("p0_1", "含义"), ("p0_2", "唯一标签数量。"), ("p0_3", "带标注的数据集。"), ("p1", "列表译文")
+            ("p0_0", "符号"), ("p0_1", "含义"), ("p0_2", "唯一标签数量。"), ("p0_3", "带标注的数据集。"),
+            ("p1_0", "第一项译文"), ("p1_1", "第二项译文")
         ]
         let segments = try translations.map { pair -> BilingualSegment in
             let original = try XCTUnwrap(paragraphs.first(where: { $0.id == pair.0 })).original
@@ -145,9 +147,9 @@ final class ReaderBlockSemanticsTests: XCTestCase {
         // 表格外不允许出现任何表格译文
         let tableEnd = try XCTUnwrap(output.range(of: "</table>")?.upperBound)
         XCTAssertFalse(output[tableEnd...].contains("paper-rss-translation-p0"), "单元格译文不允许被搬到表格之外")
-        // 列表仍是单一翻译单元
-        XCTAssertTrue(output.contains("<ul data-paper-rss-id=\"p1\""), "列表必须成为单一可观察单元")
-        XCTAssertTrue(output.contains("paper-rss-translation-p1"))
+        // 列表各项作为独立翻译单元，译文插在对应 li 内部
+        XCTAssertTrue(output.contains("<li data-paper-rss-id=\"p1_0\">第一项<aside id=\"paper-rss-translation-p1_0\""))
+        XCTAssertTrue(output.contains("<li data-paper-rss-id=\"p1_1\">第二项<aside id=\"paper-rss-translation-p1_1\""))
     }
 
     func testTableWithStrayTextOutsideCellsFallsBackToWholeTableUnit() throws {
@@ -282,6 +284,33 @@ final class ReaderBlockSemanticsTests: XCTestCase {
         if let outerListEnd, let translationStart {
             XCTAssertLessThanOrEqual(outerListEnd, translationStart)
         }
+    }
+
+    func testFlatListsDecomposeIntoItemLevelTranslationUnits() throws {
+        let source = """
+        <ul>
+          <li>First list item</li>
+          <li>Second list item</li>
+        </ul>
+        <p>Following paragraph</p>
+        """
+        let paragraphs = ArticleExtractor.readerParagraphs(in: source)
+        XCTAssertEqual(paragraphs.map(\.id), ["p0_0", "p0_1", "p1"])
+        XCTAssertEqual(paragraphs[0].original, "First list item")
+        XCTAssertEqual(paragraphs[1].original, "Second list item")
+        XCTAssertEqual(paragraphs[2].original, "Following paragraph")
+
+        let segments = [
+            BilingualSegment(id: "p0_0", original: "First list item", translation: "第一项译文"),
+            BilingualSegment(id: "p0_1", original: "Second list item", translation: "第二项译文")
+        ]
+        let output = ArticleExtractor.insertingInlineTranslations(into: source, segments: segments)
+
+        // 译文必须落在对应 li 闭合之前，保证列表结构合法且逐项紧凑对照
+        XCTAssertTrue(output.contains("First list item<aside id=\"paper-rss-translation-p0_0\""))
+        XCTAssertTrue(output.contains("Second list item<aside id=\"paper-rss-translation-p0_1\""))
+        XCTAssertTrue(output.contains("第一项译文"))
+        XCTAssertTrue(output.contains("第二项译文"))
     }
 
     func testMalformedNestedBlocksNeverProduceOverlappingTranslationRanges() {

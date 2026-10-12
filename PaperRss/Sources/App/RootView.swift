@@ -1301,7 +1301,9 @@ struct RootView: View {
                 openOriginalKeyHint: readerShortcutKeyLabel(.openOriginal),
                 onOpenOriginal: {
                     openOriginalArticle(current)
-                }
+                },
+                articleURL: current.url,
+                articleTitle: current.title
             )
             .environment(\.colorScheme, appearanceColorScheme)
             .environment(\.paperAppearancePalette, store.readerAppearance.palette(for: appearanceMode))
@@ -1678,6 +1680,15 @@ private struct SidebarView: View {
                 } else {
                     Text(I18N.localized("确定要删除此文件夹吗？文件夹内的订阅源将移动到未分类。"))
                 }
+            }
+        }
+        .onDeleteCommand {
+            if !selectedFeedIDs.isEmpty {
+                batchDeleteConfirmFeedIDs = selectedFeedIDs
+            } else if case let .feed(id) = selection {
+                batchDeleteConfirmFeedIDs = [id]
+            } else if case let .feeds(ids) = selection {
+                batchDeleteConfirmFeedIDs = ids
             }
         }
     }
@@ -3087,6 +3098,23 @@ private struct EntryListView: View {
             let nextStarred = !entry.isStarred
             store.toggleStar(entryID: entry.id)
             patchEntryState(entryID: entry.id, isStarred: nextStarred)
+        }
+        if let url = entry.url {
+            Divider()
+            ShareLink(item: url, subject: Text(entry.title)) {
+                Label(I18N.shared.localized("共享...", "Share..."), systemImage: "square.and.arrow.up")
+            }
+            Button {
+                AppInfo.copyToClipboard(url.absoluteString)
+                onFeedback(I18N.shared.localized("已复制文章链接", "Article link copied"))
+            } label: {
+                Label(I18N.shared.localized("拷贝链接", "Copy Link"), systemImage: "link")
+            }
+            Button {
+                AppInfo.openURL(url)
+            } label: {
+                Label(I18N.shared.localized("在浏览器中打开", "Open in Browser"), systemImage: "safari")
+            }
         }
         Divider()
         Button {
