@@ -12,8 +12,13 @@ struct ICloudAccountSetupView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Label("iCloud", systemImage: "icloud")
-                    .font(.title2.weight(.semibold))
+                HStack(spacing: 8) {
+                    Label("iCloud", systemImage: "icloud")
+                        .font(.title2.weight(.semibold))
+                    #if os(macOS)
+                    BetaBadge()
+                    #endif
+                }
                 Text(I18N.localized("使用系统设置中的 iCloud 账号，在多台 Mac 之间同步阅读。", englishFallback: "Use the iCloud account in System Settings to sync your reading across Macs."))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -301,7 +306,12 @@ struct ICloudLocalArchiveSettingsRow: View {
                 Image(systemName: "archivebox").font(.system(size: 20))
                     .foregroundStyle(.secondary).frame(width: 28)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(account.displayName).font(.system(size: 14, weight: .semibold))
+                    HStack(spacing: 6) {
+                        Text(account.displayName).font(.system(size: 14, weight: .semibold))
+                        #if os(macOS)
+                        BetaBadge()
+                        #endif
+                    }
                     Text(I18N.localized("只读本机归档", englishFallback: "Read-only Local Archive"))
                         .font(.caption).foregroundStyle(.secondary)
                 }

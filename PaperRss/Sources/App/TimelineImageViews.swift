@@ -421,8 +421,14 @@ struct TimelineArticleTile: View {
 #if os(macOS)
 /// 标记处于 Beta 阶段的功能，供弹出菜单标题等处复用。
 struct BetaBadge: View {
+    var text: String = "Beta"
+
+    init(_ text: String = "Beta") {
+        self.text = text
+    }
+
     var body: some View {
-        Text("BETA")
+        Text(text)
             .font(.system(size: 9, weight: .bold))
             .tracking(0.4)
             .foregroundStyle(Color.accentColor)

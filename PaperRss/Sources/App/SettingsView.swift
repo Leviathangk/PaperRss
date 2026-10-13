@@ -602,8 +602,15 @@ struct SettingsView: View {
                                     .frame(width: 28)
 
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(account.displayName)
-                                        .font(.system(size: 14, weight: .semibold))
+                                    HStack(spacing: 6) {
+                                        Text(account.displayName)
+                                            .font(.system(size: 14, weight: .semibold))
+                                        #if os(macOS)
+                                        if account.type == AccountType.iCloud.rawValue {
+                                            BetaBadge()
+                                        }
+                                        #endif
+                                    }
                                     if let user = account.username, let url = account.endpointURL {
                                         Text("\(user) @ \(url)")
                                             .font(.footnote)
@@ -3909,8 +3916,15 @@ private struct AddAccountSheet: View {
             Spacer()
 
             if selectedProvider != nil {
-                Text(selectedProvider?.title ?? "")
-                    .font(.headline)
+                HStack(spacing: 6) {
+                    Text(selectedProvider?.title ?? "")
+                        .font(.headline)
+                    #if os(macOS)
+                    if selectedProvider == .iCloud {
+                        BetaBadge()
+                    }
+                    #endif
+                }
                 Spacer()
             }
 
@@ -3947,9 +3961,16 @@ private struct AddAccountSheet: View {
                             .frame(width: 32)
 
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(provider.title)
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(Color.primary)
+                            HStack(spacing: 6) {
+                                Text(provider.title)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(Color.primary)
+                                #if os(macOS)
+                                if provider == .iCloud {
+                                    BetaBadge()
+                                }
+                                #endif
+                            }
                             Text(provider.subtitle)
                                 .font(.footnote)
                                 .foregroundStyle(Color.secondary)
