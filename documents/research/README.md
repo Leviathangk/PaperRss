@@ -9,6 +9,7 @@
 | 主题 | 文档 | 内容 |
 | --- | --- | --- |
 | 账号与同步 | [`netnewswire-account-system-and-greader.md`](netnewswire-account-system-and-greader.md) | NetNewsWire 账号架构与 Google Reader 协议 |
+| 性能与能效 | [`netnewswire-cpu-and-paperrss-optimization.md`](netnewswire-cpu-and-paperrss-optimization.md) | NetNewsWire 低 CPU 机制、PaperRss 采样结论与待实施优化方向 |
 | 第三方服务 | [`freshrss-api-research.md`](freshrss-api-research.md) | FreshRSS Google Reader 兼容接口与鉴权 |
 | 阅读与过滤 | [`rss-keyword-filtering.md`](rss-keyword-filtering.md) | RSS 关键词过滤产品与实现模式 |
 | 分发与发布 | [`app-beta-soft-launch-channels.md`](app-beta-soft-launch-channels.md) | macOS Beta 软启动渠道与规则 |

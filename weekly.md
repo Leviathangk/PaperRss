@@ -15,6 +15,7 @@
 - [ ] 公众号 RSS 支持调研
 - [x]  (废弃，可能设计版权问题）支持文档导出功能
 - [ ] V2 跨平台版本（[Tauri 可行性评估与垂直原型](documents/research/tauri-cross-platform-v2-assessment.md)） 26.08.29
+- [ ] CPU 占用优化（NetNewsWire 对标调研完成，待计划实施；[调研结论](documents/research/netnewswire-cpu-and-paperrss-optimization.md)）26.10.13
 
 ## Bugfix
 
