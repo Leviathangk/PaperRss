@@ -84,7 +84,7 @@ On first launch after upgrading, the former single AI configuration is bound to 
 
 **Stable v1.4.5 (Build 41)** is recommended for all users. List and article switching are smoother, occasional list scrolling crashes and image loading failures are fixed, and magazine page turns and the reading audio wave are improved. See the [changelog](CHANGELOG.md).
 
-**[Beta v1.5.0-beta.1 (Build 42)](https://github.com/ohmyangboy/PaperRss/releases/tag/v1.5.0-beta.1)** is available with a macOS iCloud account (Beta) for feeds, folders, read and starred states. Starred RSS content always syncs; unread content is optional, and AI results and credentials stay local. It also improves feed renaming, batch deletion shortcuts, summaries, bilingual layout and native sharing. The iCloud interface remains in the developer debugging stage. Development and production cloud data are separate; test data is not migrated automatically. See the [changelog](CHANGELOG.md).
+**[Beta v1.5.0-beta.2 (Build 43)](https://github.com/ohmyangboy/PaperRss/releases/tag/v1.5.0-beta.2)** is available with full Markdown and table rendering for AI summaries, plus macOS iCloud account sync (Beta), feed renaming and native sharing improvements. See the [changelog](CHANGELOG.md).
 
 Download the latest `.dmg` installer from [Releases](https://github.com/ohmyangboy/PaperRss/releases), open it, and drag PaperRss into your Applications folder. That's it.
 

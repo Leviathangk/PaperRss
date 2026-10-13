@@ -3,7 +3,7 @@ import Markdown
 
 /// 负责将各种来源格式（原生 HTML、转义 HTML、Markdown、混合格式、纯文本）
 /// 统一规范化为受控的 markup，供正文提取与清洗管线消费。
-enum ArticleMarkupNormalizer: Sendable {
+public enum ArticleMarkupNormalizer: Sendable {
 
     /// 内容格式分类
     enum ContentFormat: Sendable, Equatable {
@@ -105,6 +105,24 @@ enum ArticleMarkupNormalizer: Sendable {
         let expanded = expandingImageEmbeds(in: shielded.shieldedText, baseURL: baseURL)
         let document = Document(parsing: expanded, options: [.parseBlockDirectives, .parseSymbolLinks])
         var renderer = ArticleMarkdownHTMLRenderer(isInlineOnly: false)
+        let rendered = renderer.render(document)
+        return ArticleMathDetector.unshieldFormulas(rendered, tokens: shielded.tokens)
+    }
+
+    /// 渲染 AI 摘要等 Markdown 文本为受控安全 HTML。
+    /// 保留 GFM 表格、列表、加粗、斜体、代码块、引用与公式，并将软换行转换为 <br>。
+    public static func renderSummaryMarkdown(_ source: String) -> String {
+        let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+
+        // 公式先占位再还原：防止 swift-markdown 把公式内部的 *、_、\、{} 误解析为强调/转义
+        let shielded = ArticleMathDetector.shieldFormulas(in: trimmed)
+        let document = Document(parsing: shielded.shieldedText, options: [.parseBlockDirectives, .parseSymbolLinks])
+        var renderer = ArticleMarkdownHTMLRenderer(
+            isInlineOnly: false,
+            softBreakBehavior: .lineBreak,
+            escapeRawHTML: true
+        )
         let rendered = renderer.render(document)
         return ArticleMathDetector.unshieldFormulas(rendered, tokens: shielded.tokens)
     }
@@ -747,12 +765,24 @@ enum ArticleMarkupNormalizer: Sendable {
 private struct ArticleMarkdownHTMLRenderer: MarkupVisitor {
     typealias Result = String
 
-    let isInlineOnly: Bool
-
-    init(isInlineOnly: Bool = false) {
-        self.isInlineOnly = isInlineOnly
+    enum SoftBreakBehavior: Sendable {
+        case space
+        case lineBreak
     }
 
+    let isInlineOnly: Bool
+    let softBreakBehavior: SoftBreakBehavior
+    let escapeRawHTML: Bool
+
+    init(
+        isInlineOnly: Bool = false,
+        softBreakBehavior: SoftBreakBehavior = .space,
+        escapeRawHTML: Bool = false
+    ) {
+        self.isInlineOnly = isInlineOnly
+        self.softBreakBehavior = softBreakBehavior
+        self.escapeRawHTML = escapeRawHTML
+    }
     mutating func render(_ markup: any Markup) -> String {
         return visit(markup)
     }
@@ -790,7 +820,10 @@ private struct ArticleMarkdownHTMLRenderer: MarkupVisitor {
     }
 
     mutating func visitHTMLBlock(_ html: HTMLBlock) -> String {
-        return html.rawHTML
+        if html.rawHTML.contains("PAPERRSS_MATH_TOKEN_") {
+            return html.rawHTML
+        }
+        return escapeRawHTML ? escapeHTML(html.rawHTML) : html.rawHTML
     }
 
     mutating func visitHeading(_ heading: Heading) -> String {
@@ -860,7 +893,10 @@ private struct ArticleMarkdownHTMLRenderer: MarkupVisitor {
     }
 
     mutating func visitInlineHTML(_ inlineHTML: InlineHTML) -> String {
-        return inlineHTML.rawHTML
+        if inlineHTML.rawHTML.contains("PAPERRSS_MATH_TOKEN_") {
+            return inlineHTML.rawHTML
+        }
+        return escapeRawHTML ? escapeHTML(inlineHTML.rawHTML) : inlineHTML.rawHTML
     }
 
     mutating func visitLink(_ link: Link) -> String {
@@ -881,7 +917,12 @@ private struct ArticleMarkdownHTMLRenderer: MarkupVisitor {
     }
 
     mutating func visitSoftBreak(_ softBreak: SoftBreak) -> String {
-        return "\n"
+        switch softBreakBehavior {
+        case .space:
+            return "\n"
+        case .lineBreak:
+            return "<br>"
+        }
     }
 
     mutating func visitLineBreak(_ lineBreak: LineBreak) -> String {
@@ -895,7 +936,12 @@ private struct ArticleMarkdownHTMLRenderer: MarkupVisitor {
 
     mutating func visitTableHead(_ tableHead: Table.Head) -> String {
         if isInlineOnly { return defaultVisit(tableHead) }
-        return "<thead>\(defaultVisit(tableHead))</thead>"
+        let content = defaultVisit(tableHead)
+        if content.hasPrefix("<tr>") {
+            return "<thead>\(content)</thead>"
+        } else {
+            return "<thead><tr>\(content)</tr></thead>"
+        }
     }
 
     mutating func visitTableBody(_ tableBody: Table.Body) -> String {

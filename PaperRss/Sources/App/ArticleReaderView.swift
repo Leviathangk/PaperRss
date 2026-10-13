@@ -838,7 +838,7 @@ struct ArticleReaderView: View {
 
                 if let summary = store.summaryArtifact(for: entry), !summary.content.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(summary.content)
+                        Text((try? AttributedString(markdown: summary.content, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(summary.content))
                             .font(.body)
                             .lineSpacing(4)
                             .lineLimit(isSummaryExpanded ? nil : 3)
@@ -1382,42 +1382,7 @@ private enum PaperReaderHeaderBuilder {
     }
 
     static func formatSimpleMarkdown(_ raw: String) -> String {
-        let lines = raw.components(separatedBy: "\n")
-        var formattedLines: [String] = []
-
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.isEmpty {
-                continue
-            }
-            
-            var current = trimmed.htmlEscaped
-            
-            // 处理 # / ## / ### 标题，转为 <strong> 加粗，字号保持一致
-            if current.hasPrefix("#") {
-                let stripped = current.drop(while: { $0 == "#" }).trimmingCharacters(in: .whitespaces)
-                current = "<strong>\(stripped)</strong>"
-            } else if current.hasPrefix("- ") || current.hasPrefix("* ") {
-                let content = current.dropFirst(2).trimmingCharacters(in: .whitespaces)
-                current = "&bull;&nbsp;\(content)"
-            }
-            
-            // 处理 **粗体** 匹配
-            while let rangeStart = current.range(of: "**") {
-                let afterStart = current[rangeStart.upperBound...]
-                if let rangeEnd = afterStart.range(of: "**") {
-                    let boldText = afterStart[..<rangeEnd.lowerBound]
-                    let fullRange = rangeStart.lowerBound..<rangeEnd.upperBound
-                    current.replaceSubrange(fullRange, with: "<strong>\(boldText)</strong>")
-                } else {
-                    break
-                }
-            }
-            
-            formattedLines.append(current)
-        }
-        
-        return formattedLines.joined(separator: "<br>")
+        ArticleMarkupNormalizer.renderSummaryMarkdown(raw)
     }
 
     static let summaryCopyIconSVG = """
@@ -1811,6 +1776,82 @@ body > :not(.paper-header-container):not(#paper-rss-toc-rail):not(#paper-rss-toc
   font-size: 1em;
   font-weight: 600;
   color: var(--paper-ink);
+}
+.paper-summary-text p {
+  margin: 0 0 0.6em 0;
+}
+.paper-summary-text table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.6em 0;
+  font-size: 0.95em;
+  line-height: 1.5;
+}
+.paper-summary-text th,
+.paper-summary-text td {
+  border: 1px solid var(--paper-rule);
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+.paper-summary-text th {
+  background: var(--paper-wash);
+  font-weight: 600;
+}
+.paper-summary-text ul,
+.paper-summary-text ol {
+  margin: 0.4em 0 0.6em 1.4em;
+  padding: 0;
+}
+.paper-summary-text li {
+  margin-bottom: 0.25em;
+}
+.paper-summary-text blockquote {
+  margin: 0.5em 0;
+  padding: 0.2em 0 0.2em 0.8em;
+  border-left: 3px solid var(--paper-accent);
+  color: var(--paper-muted);
+}
+.paper-summary-text code {
+  background: var(--paper-code, var(--paper-wash));
+  padding: 0.15em 0.35em;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+.paper-summary-text pre {
+  margin: 0.5em 0;
+  padding: 0.6em 0.8em;
+  background: var(--paper-code);
+  border: 1px solid var(--paper-rule);
+  border-radius: 6px;
+  overflow-x: auto;
+}
+.paper-summary-text pre code {
+  padding: 0;
+  background: transparent;
+}
+.paper-summary-text h1,
+.paper-summary-text h2,
+.paper-summary-text h3,
+.paper-summary-text h4,
+.paper-summary-text h5,
+.paper-summary-text h6 {
+  font-size: 1.05em;
+  font-weight: 600;
+  margin: 0.6em 0 0.3em 0;
+  color: var(--paper-ink);
+}
+.paper-summary-text hr {
+  margin: 0.8em 0;
+  border: 0;
+  height: 1px;
+  background: var(--paper-rule);
+}
+.paper-summary-text > :first-child {
+  margin-top: 0;
+}
+.paper-summary-text > :last-child {
+  margin-bottom: 0;
 }
 .paper-spinner {
   display: inline-block;

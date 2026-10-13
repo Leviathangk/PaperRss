@@ -1,5 +1,27 @@
 # 更新记录 / Changelog
 
+
+## v1.5.0-beta.2 · Build 43 · 2026-10-13
+
+本次 Beta 支持 AI 摘要的 Markdown 完整渲染，结合自定义表达偏好可清晰排版表格与结构化内容；欢迎 Beta 通道用户测试，稳定版仍为 v1.4.5。
+
+- **AI 摘要支持 Markdown 完整渲染**：摘要卡片支持 GFM 表格排版，结合「表达偏好」（如指定「表格列出」）可将要点与事实规整对齐展示；支持粗体、斜体、列表、代码块、引用块及公式。
+- **排版与换行优化**：单换行按段内断行展示，改善卡片视觉边距与表头背景，折叠预览与直接复制体验更稳定。
+
+![表达偏好设置](assets/screenshots/ai-summary-custom-prompt.png)
+
+![AI 摘要表格渲染](assets/screenshots/ai-summary-markdown-table.png)
+
+---
+
+This Beta adds full Markdown rendering to AI summaries, cleanly formatting tables and structured content when configured via custom expression preferences. Beta channel users are invited to test it; the stable release remains v1.4.5.
+
+- **Full Markdown rendering for AI summaries**: The summary card now formats GFM tables, neatly aligning key points and facts when custom expression preferences (such as requesting tabular summaries) are set. Headings, bold, italics, lists, code blocks, blockquotes, and math formulas are also supported.
+- **Layout and line break improvements**: Soft line breaks render as in-paragraph breaks, table headers and borders match the reader theme, and card folding preview and direct copying remain smooth.
+
+![Expression preference setting](assets/screenshots/ai-summary-custom-prompt.png)
+
+![AI summary markdown table](assets/screenshots/ai-summary-markdown-table.png)
 ## v1.5.0-beta.1 · Build 42 · 2026-10-13
 
 本次 Beta 新增 macOS iCloud 同步，并改进订阅管理与 AI 阅读；欢迎 Beta 通道用户测试，稳定版仍为 v1.4.5。iCloud 界面仍处于开发调试阶段。

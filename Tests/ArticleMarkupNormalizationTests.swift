@@ -446,4 +446,64 @@ final class ArticleMarkupNormalizationTests: XCTestCase {
             }
         }
     }
+    // MARK: - AI Summary Markdown Rendering Tests
+
+    func testRenderSummaryMarkdownWithTableAndProse() {
+        let md = """
+        结论：本文仅作案例分析：用 Codex + REA 下载微信视频号视频，需多步配合，并非成熟下载方案。
+        | 要点 | 事实 |
+        |---|---|
+        | 目的 | 用 Codex + REA 下载微信中正在播放的视频号视频。 |
+        | 提示词 | 提示很简单：“Use REA，帮我下载我微信打开正在播放的视频号的视频”。 |
+        | 过程 | 一轮对话搞不定，需要根据提示多步完成。 |
+        | 实现 | Codex 最终配置本地代理服务器，并需多次输入密码安装证书。 |
+        | 解密 | 它还写了脚本解密下载后的视频；作者不确定是训练过相关开源项目，还是 REA 分析所得。 |
+        | 后续 | 若可稳定下载，可把方法和流程整理成 Skill，以后复用。 |
+        | 延伸 | 评论提到录屏是好办法；文章还称可用 Computer Use，让 REA 点击下载 Templates 并自行打开 CapCut，以学习动态字幕格式。 |
+        """
+        let result = ArticleMarkupNormalizer.renderSummaryMarkdown(md)
+        XCTAssertTrue(result.contains("<p>结论：本文仅作案例分析：用 Codex + REA 下载微信视频号视频，需多步配合，并非成熟下载方案。</p>"))
+        XCTAssertTrue(result.contains("<table><thead><tr><th>要点</th><th>事实</th></tr></thead>"))
+        XCTAssertTrue(result.contains("<tbody><tr><td>目的</td><td>用 Codex + REA 下载微信中正在播放的视频号视频。</td></tr>"))
+        XCTAssertTrue(result.contains("<td>提示词</td><td>提示很简单：“Use REA，帮我下载我微信打开正在播放的视频号的视频”。</td></tr>"))
+    }
+
+    func testRenderSummaryMarkdownSoftBreakAsLineBreak() {
+        let md = """
+        第一行结论
+        第二行补充
+        """
+        let result = ArticleMarkupNormalizer.renderSummaryMarkdown(md)
+        XCTAssertEqual(result, "<p>第一行结论<br>第二行补充</p>")
+    }
+
+    func testRenderSummaryMarkdownEscapesRawHTML() {
+        let md = "安全测试：<script>alert(1)</script> 与 <b>强调</b>"
+        let result = ArticleMarkupNormalizer.renderSummaryMarkdown(md)
+        XCTAssertFalse(result.contains("<script>"), "摘要渲染严禁透传原始 script 标签")
+        XCTAssertTrue(result.contains("&lt;script&gt;alert(1)&lt;/script&gt;"))
+    }
+
+    func testRenderSummaryMarkdownPreservesMathFormulas() {
+        let md = "包含公式 $c_s^* = x$ 与 $$\\sum_{i=1}^n x_i$$ 的摘要。"
+        let result = ArticleMarkupNormalizer.renderSummaryMarkdown(md)
+        XCTAssertTrue(result.contains("$c_s^* = x$"), "行内公式星号不得被 markdown 强调吞并")
+        XCTAssertTrue(result.contains("$$\\sum_{i=1}^n x_i$$"), "块级公式必须完整还原")
+    }
+
+    func testRenderSummaryMarkdownListsAndCode() {
+        let md = """
+        ### 核心要点
+        - 重点一：**加粗文本**
+        - 重点二：`inline code`
+
+        ```swift
+        let answer = 42
+        ```
+        """
+        let result = ArticleMarkupNormalizer.renderSummaryMarkdown(md)
+        XCTAssertTrue(result.contains("<h3>核心要点</h3>"))
+        XCTAssertTrue(result.contains("<ul><li>重点一：<strong>加粗文本</strong></li><li>重点二：<code>inline code</code></li></ul>"))
+        XCTAssertTrue(result.contains("<pre><code class=\"language-swift\">let answer = 42\n</code></pre>"))
+    }
 }
