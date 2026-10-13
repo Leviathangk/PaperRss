@@ -2955,6 +2955,16 @@ final class FreshRSSIntegrationTests: XCTestCase {
         XCTAssertTrue(hasQuickAdd)
         XCTAssertTrue(hasEditLabel)
 
+        // 2.1 重命名订阅源
+        try await provider.renameFeed(feedID: feed.id, newTitle: "科技新头条")
+        let renamedRecord = try database.read { db in
+            try FeedRecord.filter(Column("id") == feed.id.uuidString).fetchOne(db)
+        }
+        XCTAssertEqual(renamedRecord?.title, "科技新头条")
+        XCTAssertEqual(renamedRecord?.customTitle, "科技新头条")
+        let hasEditTitle = requestsBox.value.contains { $0.contains("subscription/edit") && $0.contains("t=%E7%A7%91%E6%8A%80%E6%96%B0%E5%A4%B4%E6%9D%A1") || ($0.removingPercentEncoding?.contains("t=科技新头条") == true) }
+        XCTAssertTrue(hasEditTitle, "重命名必须向 FreshRSS 服务端发送 edit 请求更新标题")
+
         // 3. 删除单个订阅源
         try await provider.deleteFeed(feedID: feed.id)
         let deletedFeed = try database.read { db in

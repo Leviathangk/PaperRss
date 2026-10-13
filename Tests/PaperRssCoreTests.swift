@@ -1204,4 +1204,82 @@ final class PaperRssCoreTests: XCTestCase {
         store.appLanguage = .en
         XCTAssertEqual(store.iCloudSyncStatus, "Disabled")
     }
+
+    func testFeedRecordAndFeedCustomTitleAndRename() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("FeedRenameTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let db = try LibraryDatabase(databaseURL: tempDir.appendingPathComponent("library.sqlite"))
+        let repo = FeedRepository(database: db)
+
+        let feedID = UUID().uuidString
+        let initialRecord = FeedRecord(
+            id: feedID,
+            accountID: "local-default",
+            title: "Original Blog",
+            customTitle: nil,
+            originalTitle: "Original Blog",
+            siteURL: nil,
+            feedURL: "https://example.com/feed.xml",
+            updatedAt: 100
+        )
+
+        try db.write { db in
+            try AccountRecord(id: "local-default", type: "local", displayName: "Local", createdAt: 1, updatedAt: 1).save(db)
+            try repo.saveFeed(initialRecord, in: db)
+        }
+
+        // 1. 查询模型：验证初始状态
+        let model = try db.read { db in try repo.fetchFeedModel(id: feedID, in: db) }
+        XCTAssertEqual(model?.title, "Original Blog")
+        XCTAssertNil(model?.customTitle)
+        XCTAssertEqual(model?.originalTitle, "Original Blog")
+
+        // 2. 执行重命名
+        try db.write { db in
+            try repo.renameFeed(feedID: feedID, newTitle: "My Renamed Feed", in: db)
+        }
+
+        let renamedModel = try db.read { db in try repo.fetchFeedModel(id: feedID, in: db) }
+        XCTAssertEqual(renamedModel?.title, "My Renamed Feed")
+        XCTAssertEqual(renamedModel?.customTitle, "My Renamed Feed")
+        XCTAssertEqual(renamedModel?.originalTitle, "Original Blog")
+
+        // 3. 模拟 RSS 抓取刷新元数据：远端博客标题变更为 "Author Changed Title"
+        try db.write { db in
+            try repo.updateFeedMetadata(feedID: feedID, title: "Author Changed Title", in: db)
+        }
+
+        let afterRefreshModel = try db.read { db in try repo.fetchFeedModel(id: feedID, in: db) }
+        XCTAssertEqual(afterRefreshModel?.title, "My Renamed Feed", "刷新时绝不能覆盖用户自定义的标题")
+        XCTAssertEqual(afterRefreshModel?.customTitle, "My Renamed Feed")
+        XCTAssertEqual(afterRefreshModel?.originalTitle, "Author Changed Title", "originalTitle 必须记录远端最新标题")
+
+        // 4. 用户恢复为远端标题
+        try db.write { db in
+            try repo.renameFeed(feedID: feedID, newTitle: "Author Changed Title", in: db)
+        }
+
+        let revertedModel = try db.read { db in try repo.fetchFeedModel(id: feedID, in: db) }
+        XCTAssertEqual(revertedModel?.title, "Author Changed Title")
+        XCTAssertNil(revertedModel?.customTitle, "恢复后 customTitle 必须为 nil")
+    }
+
+    @MainActor
+    func testAppStoreFeedRenameIntegration() async throws {
+        let store = AppStore(testDatabase: .empty) { _ in
+            FeedFetchResult.notModified(etag: nil, lastModified: nil)
+        }
+        let feed = try store.localProvider.addFeed(
+            title: "Tech News",
+            feedURL: URL(string: "https://example.com/tech.xml")!
+        )
+        store.reloadState()
+        XCTAssertEqual(store.feeds.first(where: { $0.id == feed.id })?.title, "Tech News")
+
+        // 重命名
+        store.renameFeed(feed, to: "My Tech News")
+        XCTAssertEqual(store.feeds.first(where: { $0.id == feed.id })?.title, "My Tech News")
+    }
 }

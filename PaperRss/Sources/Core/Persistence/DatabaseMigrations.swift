@@ -760,6 +760,17 @@ public enum DatabaseMigrations {
             try db.execute(sql: "ALTER TABLE icloud_sync_scope ADD COLUMN retention_maintenance BLOB;")
         }
 
+        migrator.registerMigration("v24-add-feed-custom-title") { db in
+            guard try db.tableExists("feeds") else { return }
+            let columns = try db.columns(in: "feeds")
+            if !columns.contains(where: { $0.name == "custom_title" }) {
+                try db.execute(sql: "ALTER TABLE feeds ADD COLUMN custom_title TEXT;")
+            }
+            if !columns.contains(where: { $0.name == "original_title" }) {
+                try db.execute(sql: "ALTER TABLE feeds ADD COLUMN original_title TEXT;")
+            }
+        }
+
         return migrator
     }
 

@@ -11,6 +11,8 @@ public struct FeedRecord: Codable, FetchableRecord, PersistableRecord, TableReco
     public var accountID: String
     public var externalID: String?
     public var title: String
+    public var customTitle: String?
+    public var originalTitle: String?
     public var siteURL: String?
     public var feedURL: String
     public var etag: String?
@@ -26,6 +28,8 @@ public struct FeedRecord: Codable, FetchableRecord, PersistableRecord, TableReco
         accountID: String,
         externalID: String? = nil,
         title: String,
+        customTitle: String? = nil,
+        originalTitle: String? = nil,
         siteURL: String? = nil,
         feedURL: String,
         etag: String? = nil,
@@ -40,6 +44,8 @@ public struct FeedRecord: Codable, FetchableRecord, PersistableRecord, TableReco
         self.accountID = accountID
         self.externalID = externalID
         self.title = title
+        self.customTitle = customTitle
+        self.originalTitle = originalTitle
         self.siteURL = siteURL
         self.feedURL = feedURL
         self.etag = etag
@@ -56,6 +62,8 @@ public struct FeedRecord: Codable, FetchableRecord, PersistableRecord, TableReco
         case accountID = "account_id"
         case externalID = "external_id"
         case title
+        case customTitle = "custom_title"
+        case originalTitle = "original_title"
         case siteURL = "site_url"
         case feedURL = "feed_url"
         case etag
@@ -65,5 +73,25 @@ public struct FeedRecord: Codable, FetchableRecord, PersistableRecord, TableReco
         case updatedAt = "updated_at"
         case storedIconURL = "stored_icon_url"
         case sortOrder = "sort_order"
+    }
+
+    public func encode(to container: inout PersistenceContainer) throws {
+        container["id"] = id
+        container["account_id"] = accountID
+        container["external_id"] = externalID
+        container["title"] = title
+        container["site_url"] = siteURL
+        container["feed_url"] = feedURL
+        container["etag"] = etag
+        container["last_modified"] = lastModified
+        container["last_refreshed_at"] = lastRefreshedAt
+        container["is_deleted"] = isDeleted
+        container["updated_at"] = updatedAt
+        container["stored_icon_url"] = storedIconURL
+        container["sort_order"] = sortOrder
+        // Pre-v24 databases in migration tests may lack custom_title/original_title.
+        // Omit them when nil so inserting pre-v24 records succeeds without unknown column errors.
+        if let customTitle { container["custom_title"] = customTitle }
+        if let originalTitle { container["original_title"] = originalTitle }
     }
 }

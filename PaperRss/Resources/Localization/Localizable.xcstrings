@@ -8854,6 +8854,46 @@
         }
       }
     },
+    "重命名订阅" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rename Feed"
+          }
+        }
+      }
+    },
+    "重命名订阅..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rename Feed..."
+          }
+        }
+      }
+    },
+    "新订阅名称" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Feed Name"
+          }
+        }
+      }
+    },
+    "恢复默认名称" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restore Default Title"
+          }
+        }
+      }
+    },
     "重新拉取正文" : {
       "localizations" : {
         "en" : {

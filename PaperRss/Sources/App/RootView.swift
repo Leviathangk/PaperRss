@@ -270,6 +270,7 @@ struct RootView: View {
     @State private var initialFeedDestination: FeedTargetDestination? = nil
     @State private var initialFolderAccountID: String? = nil
     @State private var renamingFolder: FolderIdentifiable? = nil
+    @State private var renamingFeed: Feed? = nil
     @State private var showsSettings = false
     @State private var showsImporter = false
     @State private var showsExporter = false
@@ -369,6 +370,9 @@ struct RootView: View {
                     }
                 }
             }
+            .sheet(item: $renamingFeed) { feed in
+                RenameFeedSheet(store: store, feed: feed)
+            }
             #if os(iOS)
             .sheet(isPresented: $showsSettings) { NavigationStack { SettingsView(store: store).navigationTitle(I18N.localized("设置")) } }
             #endif
@@ -449,6 +453,7 @@ struct RootView: View {
                 initialFeedDestination: $initialFeedDestination,
                 initialFolderAccountID: $initialFolderAccountID,
                 renamingFolder: $renamingFolder,
+                renamingFeed: $renamingFeed,
                 showsSettings: $showsSettings,
                 showsImporter: $showsImporter,
                 showsExporter: $showsExporter,
@@ -538,6 +543,7 @@ struct RootView: View {
                 initialFeedDestination: $initialFeedDestination,
                 initialFolderAccountID: $initialFolderAccountID,
                 renamingFolder: $renamingFolder,
+                renamingFeed: $renamingFeed,
                 showsSettings: $showsSettings,
                 showsImporter: $showsImporter,
                 showsExporter: $showsExporter,
@@ -1344,6 +1350,7 @@ private struct SidebarView: View {
     @Binding var initialFeedDestination: FeedTargetDestination?
     @Binding var initialFolderAccountID: String?
     @Binding var renamingFolder: FolderIdentifiable?
+    @Binding var renamingFeed: Feed?
     @Binding var showsSettings: Bool
     @Binding var showsImporter: Bool
     @Binding var showsExporter: Bool
@@ -2014,6 +2021,12 @@ private struct SidebarView: View {
                         cloudMoveMenu(feedIDs: [feed.id], accountID: accountID, multiple: false)
                     }
 
+                    Button {
+                        renamingFeed = feed
+                    } label: {
+                        Label(I18N.localized("重命名订阅...", englishFallback: "Rename Feed..."), systemImage: "pencil")
+                    }
+
                     Divider()
 
                     Button(role: .destructive) {
@@ -2326,6 +2339,12 @@ private struct SidebarView: View {
                         }
                     } label: {
                         Label(I18N.localized("移动到文件夹"), systemImage: "folder")
+                    }
+
+                    Button {
+                        renamingFeed = feed
+                    } label: {
+                        Label(I18N.localized("重命名订阅...", englishFallback: "Rename Feed..."), systemImage: "pencil")
                     }
 
                     Divider()
@@ -4318,6 +4337,90 @@ private struct RenameFolderSheet: View {
         let clean = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         store.renameFolder(from: oldName, to: clean, accountID: accountID)
         onRename?(clean)
+        dismiss()
+    }
+}
+
+private struct RenameFeedSheet: View {
+    @ObservedObject var store: AppStore
+    let feed: Feed
+    var onRename: ((String) -> Void)? = nil
+    @Environment(\.dismiss) private var dismiss
+    @State private var newName: String = ""
+
+    init(store: AppStore, feed: Feed, onRename: ((String) -> Void)? = nil) {
+        self.store = store
+        self.feed = feed
+        self.onRename = onRename
+        _newName = State(initialValue: feed.title)
+    }
+
+    private var cleanName: String {
+        newName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canSubmit: Bool {
+        !cleanName.isEmpty && cleanName != feed.title
+    }
+
+    private var canRestoreDefault: Bool {
+        guard let original = feed.originalTitle, !original.isEmpty else { return false }
+        return feed.customTitle != nil && cleanName != original
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 18) {
+                Label(I18N.localized("新订阅名称", englishFallback: "New Feed Name"), systemImage: "pencil")
+                    .font(.headline)
+
+                TextField(I18N.localized("订阅名称", englishFallback: "Feed Name"), text: $newName)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(submit)
+
+                HStack {
+                    Text(feed.feedURL.absoluteString)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+
+                    Spacer(minLength: 8)
+
+                    if canRestoreDefault, let original = feed.originalTitle {
+                        Button {
+                            newName = original
+                        } label: {
+                            Text(I18N.localized("恢复默认名称", englishFallback: "Restore Default Title"))
+                                .font(.caption)
+                        }
+                        .buttonStyle(.link)
+                    }
+                }
+
+                Spacer()
+            }
+            .padding(24)
+            .navigationTitle(I18N.localized("重命名订阅", englishFallback: "Rename Feed"))
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button(I18N.localized("取消")) { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(I18N.localized("保存"), action: submit)
+                        .disabled(!canSubmit)
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: 420, idealWidth: 450, minHeight: 200)
+        #else
+        .presentationDetents([.height(220)])
+        #endif
+    }
+
+    private func submit() {
+        guard canSubmit else { return }
+        store.renameFeed(feed, to: cleanName)
+        onRename?(cleanName)
         dismiss()
     }
 }

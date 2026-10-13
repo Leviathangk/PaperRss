@@ -1004,6 +1004,10 @@ actor ICloudAccountProvider: AccountProvider {
         guard archiveRecoverySession == nil else { throw ICloudArchiveRecoveryError.operationInProgress }
         try await local.deleteFeed(feedID: feedID)
     }
+    func renameFeed(feedID: UUID, newTitle: String) async throws {
+        guard archiveRecoverySession == nil else { throw ICloudArchiveRecoveryError.operationInProgress }
+        try await local.renameFeed(feedID: feedID, newTitle: newTitle)
+    }
     func addFolder(name: String) async throws -> FolderRecord {
         guard archiveRecoverySession == nil else { throw ICloudArchiveRecoveryError.operationInProgress }
         return try await local.addFolder(name: name)
