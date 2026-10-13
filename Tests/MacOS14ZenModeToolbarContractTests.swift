@@ -66,16 +66,8 @@ final class MacOS14ZenModeToolbarContractTests: XCTestCase {
         XCTAssertTrue(rootSource.contains("private func openOriginalArticle("), "按钮与快捷键必须共用同一动作入口")
     }
 
-    func testReaderCapsuleToolbarAndContextMenuExposeShareLinkAndCopyLink() throws {
-        let readerSource = try appSource("ArticleReaderView.swift")
+    func testContextMenuExposesShareLinkAndCopyLink() throws {
         let rootSource = try appSource("RootView.swift")
-        let toolbarStart = try XCTUnwrap(readerSource.range(of: "struct ReaderCapsuleToolbar: View"))
-        let toolbarSource = readerSource[toolbarStart.lowerBound..<readerSource.endIndex]
-
-        XCTAssertTrue(toolbarSource.contains("toolbarSymbol(\"square.and.arrow.up\""), "阅读工具栏胶囊必须提供系统共享的 SF Symbol 入口")
-        XCTAssertTrue(toolbarSource.contains("ShareLink(item: articleURL"), "阅读工具栏胶囊必须通过 ShareLink 支持原生系统分享")
-        XCTAssertTrue(rootSource.contains("articleURL: current.url"), "RootView 必须将当前文章的 URL 注入阅读胶囊")
-
         let contextMenuStart = try XCTUnwrap(rootSource.range(of: "private func entryContextMenu("))
         let contextMenuSource = rootSource[contextMenuStart.lowerBound..<rootSource.endIndex]
         XCTAssertTrue(contextMenuSource.contains("ShareLink(item: url"), "文章列表上下文菜单必须包含系统共享")

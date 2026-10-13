@@ -7698,8 +7698,6 @@ struct ReaderCapsuleToolbar: View {
     var canOpenOriginal: Bool = false
     var openOriginalKeyHint: String = ""
     var onOpenOriginal: () -> Void = {}
-    var articleURL: URL? = nil
-    var articleTitle: String = ""
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.paperAppearancePalette) private var appearancePalette
@@ -7763,21 +7761,6 @@ struct ReaderCapsuleToolbar: View {
             .buttonStyle(.plain)
             .disabled(!canOpenOriginal)
             .accessibilityLabel(openOriginalAccessibilityLabel)
-
-            if let articleURL {
-                ShareLink(item: articleURL, subject: Text(articleTitle)) {
-                    toolbarSymbol("square.and.arrow.up", isActive: false)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(I18N.shared.localized("共享文章", "Share Article"))
-            } else {
-                Button(action: {}) {
-                    toolbarSymbol("square.and.arrow.up", isActive: false)
-                }
-                .buttonStyle(.plain)
-                .disabled(true)
-                .accessibilityLabel(I18N.shared.localized("共享文章", "Share Article"))
-            }
         }
         .padding(.horizontal, 6)
         .frame(height: 28)

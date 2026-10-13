@@ -1301,9 +1301,7 @@ struct RootView: View {
                 openOriginalKeyHint: readerShortcutKeyLabel(.openOriginal),
                 onOpenOriginal: {
                     openOriginalArticle(current)
-                },
-                articleURL: current.url,
-                articleTitle: current.title
+                }
             )
             .environment(\.colorScheme, appearanceColorScheme)
             .environment(\.paperAppearancePalette, store.readerAppearance.palette(for: appearanceMode))
