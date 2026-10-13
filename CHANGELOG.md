@@ -1,10 +1,10 @@
 # 更新记录 / Changelog
 
-## v1.5.0-beta.1 · Build 42 · 2026-10-13（候选，待发布验收）
+## v1.5.0-beta.1 · Build 42 · 2026-10-13
 
 本次 Beta 新增 macOS iCloud 同步，并改进订阅管理与 AI 阅读；欢迎 Beta 通道用户测试，稳定版仍为 v1.4.5。iCloud 界面仍处于开发调试阶段。
 
-- **iCloud 账户（Beta）**：在「设置 → 账号 → 添加账号」中选择 iCloud，使用系统已登录的 Apple Account，在多台 Mac 之间同步订阅源、目录、已读/未读和收藏状态；「我的 Mac」、FreshRSS、Miniflux 与 iCloud 各自独立，添加 iCloud 不会自动搬走现有资料。
+- **iCloud 账户（Beta）**：在「设置 → 账号 → 添加账号」中选择 iCloud，使用系统已登录的 Apple Account，在多台 Mac 之间同步订阅源、目录、已读/未读和收藏状态；「我的 Mac」、FreshRSS、Miniflux 与 iCloud 各自独立，添加 iCloud 不会自动搬走现有资料。开发版使用的测试云库与本次 Beta 的正式云库相互独立，测试资料不会自动迁入。
 - **正文同步范围**：收藏文章始终同步 RSS 原正文；未读正文默认不上传，可在 iCloud 账户的高级选项中开启。同步的是 RSS 提供的正文，不包含额外抓取的网页全文、AI 摘要/译文、模型设置、API Key 或本机阅读外观；订阅链接及其中的访问参数会进入你的私有 iCloud。缺少可靠原始身份的历史文章及超出大小限制的正文会保留在本机。
 - **离线与同步反馈**：离线阅读、收藏和订阅调整先在本机保存，待联网后发送；后台状态同步减少刷新动画，频繁切回 App 时合并云端拉取，手动刷新仍可立即执行。账户页可查看待发送数量与错误，高级选项提供云端记录和恢复资料的审阅入口。
 - **订阅管理**：支持重命名订阅源，名称重启后保留，并按账户同步能力处理；侧栏可用 Command/Shift 多选，再按 Delete/Backspace 打开批量删除确认。[#46](https://github.com/ohmyangboy/PaperRss/issues/46)
@@ -15,7 +15,7 @@
 
 This Beta adds iCloud sync on macOS and improves feed management and AI reading. Beta channel users are invited to test it; the stable release remains v1.4.5. The iCloud interface is still in the developer debugging stage.
 
-- **iCloud account (Beta)**: Choose iCloud in Settings → Accounts → Add Account to use the Apple Account signed in on your Mac. Sync feeds, folders, read/unread and starred states across Macs. My Mac, FreshRSS, Miniflux and iCloud remain separate accounts; adding iCloud does not automatically move existing data.
+- **iCloud account (Beta)**: Choose iCloud in Settings → Accounts → Add Account to use the Apple Account signed in on your Mac. Sync feeds, folders, read/unread and starred states across Macs. My Mac, FreshRSS, Miniflux and iCloud remain separate accounts; adding iCloud does not automatically move existing data. The development test database and this Beta’s production database are separate; test data is not migrated automatically.
 - **Article content scope**: Starred articles always sync their original RSS content. Unread content is off by default and can be enabled in the iCloud account’s advanced options. Sync includes RSS content, rather than separately extracted web pages, AI summaries/translations, model settings, API keys or local reader appearance. Feed URLs and their access parameters go to your private iCloud. Historical articles without reliable source identities and content above the size limit stay on this Mac.
 - **Offline use and sync feedback**: Reading states, stars and feed edits save locally before being sent when online. Background state sync shows fewer refresh animations, repeated app activations coalesce cloud fetches, and manual refresh remains immediate. Account settings show pending changes and errors; advanced options provide reviews of cloud records and recovery data.
 - **Feed management**: Rename feeds with names preserved after relaunch and handled according to each account’s sync capabilities. Select multiple feeds with Command/Shift, then press Delete/Backspace to open the deletion confirmation. [#46](https://github.com/ohmyangboy/PaperRss/issues/46)

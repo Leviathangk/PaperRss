@@ -752,3 +752,12 @@ Development 支持首次程序写入时建立 record type／字段，并在开�
 首次沙箱构建被用户目录中的 SwiftPM／Clang 缓存写入权限阻止（run-miufmwku.log，退出码 74），不是源代码或 scheme 失败。经授权在沙箱外执行实际入口后，`dev.sh --icloud --build-only` 通过（run-k_ooz4wy.log，退出码 0），`dev.sh --build-only` 通过（run-hz12lmag.log，退出码 0）。使用本机 codesign 手册指定的 `--entitlements - --xml` 在沙箱外核验：iCloud 产物含指定 container、CloudKit、Development、开发推送和有效匹配的内嵌 profile；普通 Debug 未带 CloudKit 权限；两者 `--verify --deep --strict` 均通过。最新摘要及二进制散列保存在 `build/reports/devsh-signing-check.json`。
 
 本轮没有启动真实 App，也没有更改正式阅读资料或完成实际云端功能验收。维护者可直接用 `./scripts/dev.sh --icloud` 开始第 13.4 节的测试，无需每次打开 Xcode GUI。
+
+
+### 13.6 2026-10-13 Production 部署与 Beta 分发
+
+- v1.5.0-beta.1 / Build 42 已作为 GitHub 预发布版本公开；维护者在本轮确认开发版交互验收完成，并明确要求一并部署 Production、直接发布 Beta。正式候选产物的现场双端同步没有在本轮执行，不能将本节的结构/签名证据当作这项验收。
+- 容器 `iCloud.com.yangbukun.PaperRss` 的 Production 原先未有业务类型。本轮经已登录的官方 CloudKit Console 部署 `PaperRssLibraryRootV1` 与 `PaperRssRecordV1`，部署前补齐 `contentAsset`（Asset）及系统创建时间 `___createTime` 的 QUERYABLE 索引（SDK 使用 `creationDate` 谓词）。控制台显示 Changes Deployed，并切换 Production 回读、导出确认；未迁移、删除或重置开发测试记录。
+- Release 使用 `PaperRss-CloudKit-Release.entitlements`，归档允许 Xcode 更新匹配描述文件；Developer ID 自动导出指定 `iCloudContainerEnvironment=Production`。实际 App 与嵌入的 Developer ID 描述文件均带有指定容器、Production 和 production 推送权限，签名、公证、Staple 与 Gatekeeper 通过。普通 Debug 和 Debug-iCloud 的权限边界保持各自配置。
+- Development 与 Production 的云数据独立；schema 部署不会复制开发测试资料，更新说明已明确不自动迁入。
+- 本次导出的 Production schema SHA-256：`7d516c4fa87d55ccbeaf0679f0c84ac2ba570f01caf7db267dd1ef83caf1d093`。源码 tag 绑定 `2c7ddd345c0ee0d18d42d6adf09cb705fa056a8c`；发布与部署详细证据保存在本地 `build/release-preparation/v1.5.0-beta.1/`、`dist/release/v1.5.0-beta.1/` 和 `build/reports/`，不包含管理 token 或私有阅读记录。
