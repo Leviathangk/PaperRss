@@ -712,7 +712,7 @@ public final class AppStore: ObservableObject {
                         }
                     )
                     Task { [syncCoordinator] in
-                        await syncCoordinator.registerProvider(provider)
+                        await syncCoordinator.registerProviderIfNeeded(provider)
                     }
                 } else {
                     Task { [syncCoordinator] in
@@ -826,7 +826,7 @@ public final class AppStore: ObservableObject {
                     }
                 )
                 Task { [syncCoordinator] in
-                    await syncCoordinator.registerProvider(provider)
+                    await syncCoordinator.registerProviderIfNeeded(provider)
                 }
             } else {
                 Task { [syncCoordinator] in

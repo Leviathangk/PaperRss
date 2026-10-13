@@ -143,7 +143,7 @@ public final class ArticleStateRepository: Sendable {
         in db: Database
     ) throws {
         let now = Date().timeIntervalSince1970
-        var whereClauses = ["s.is_read = 0"]
+        var whereClauses = ["s.is_read = 0", "a.is_enabled = 1", "a.is_archived = 0"]
         var arguments: [String: (any DatabaseValueConvertible)?] = [:]
 
         if let accountID {

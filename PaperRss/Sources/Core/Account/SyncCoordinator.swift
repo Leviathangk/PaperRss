@@ -14,6 +14,12 @@ public actor SyncCoordinator {
         providers[provider.accountID] = provider
     }
 
+    /// Projection reloads must keep the active provider and its in-flight outbox guard.
+    public func registerProviderIfNeeded(_ provider: any AccountProvider) {
+        guard providers[provider.accountID] == nil else { return }
+        providers[provider.accountID] = provider
+    }
+
     public func unregisterProvider(accountID: String) {
         providers.removeValue(forKey: accountID)
         isSyncing.removeValue(forKey: accountID)
