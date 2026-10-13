@@ -1,6 +1,76 @@
 {
   "sourceLanguage" : "zh-Hans",
   "strings" : {
+  "同步未读文章正文": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Sync unread article content"
+        }
+      }
+    }
+  },
+  "收藏文章始终同步；开启后在多台设备间同步未读文章全文。": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Starred articles always sync; enable to sync full unread content across your devices."
+        }
+      }
+    }
+  },
+  "已与 iCloud 保持同步": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Up to date with iCloud"
+        }
+      }
+    }
+  },
+  "高级与云端维护选项": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Advanced & Cloud Maintenance Options"
+        }
+      }
+    }
+  },
+  "云端记录与维护": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud Records & Maintenance"
+        }
+      }
+    }
+  },
+  "资料恢复与重置": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Data Recovery & Reset"
+        }
+      }
+    }
+  },
+  "复制订阅到 iCloud…": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Copy Subscriptions to iCloud…"
+        }
+      }
+    }
+  },
   "重新启用将沿用原授权、任务编号和等待时间。": {
     "localizations": {
       "en": {

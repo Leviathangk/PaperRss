@@ -12,8 +12,13 @@ struct ICloudAccountSetupView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Label("iCloud", systemImage: "icloud")
-                    .font(.title2.weight(.semibold))
+                HStack(spacing: 8) {
+                    Label("iCloud", systemImage: "icloud")
+                        .font(.title2.weight(.semibold))
+                    #if os(macOS)
+                    BetaBadge()
+                    #endif
+                }
                 Text(I18N.localized("使用系统设置中的 iCloud 账号，在多台 Mac 之间同步阅读。", englishFallback: "Use the iCloud account in System Settings to sync your reading across Macs."))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -88,6 +93,7 @@ struct ICloudAccountSettingsRow: View {
     @State private var snapshot: ICloudAccountSyncSnapshot?
     @State private var errorMessage: String?
     @State private var isSaving = false
+    @State private var isAdvancedExpanded = false
     @State private var presentedSheet: SettingsSheet?
 
     private enum SettingsSheet: String, Identifiable {
@@ -106,33 +112,52 @@ struct ICloudAccountSettingsRow: View {
         VStack(alignment: .leading, spacing: 10) {
             if let snapshot {
                 if snapshot.isPaused {
-                    Label(I18N.localized("同步已暂停，本机资料已保留。", englishFallback: "Sync is paused. Your data on this Mac is retained."), systemImage: "pause.circle")
+                    Label(I18N.localized("同步已暂停，本机资料已保留。", englishFallback: "Sync is paused. Your data on this Mac is retained."), systemImage: "pause.circle.fill")
                         .foregroundStyle(.orange)
                 }
                 Toggle(isOn: Binding(
                     get: { snapshot.syncUnreadContent },
                     set: { value in Task { await saveUnreadOption(value) } }
                 )) {
-                    Text(I18N.localized("同步未读文章的 RSS 正文", englishFallback: "Sync original RSS content of unread articles"))
+                    Text(I18N.localized("同步未读文章正文", englishFallback: "Sync unread article content"))
                 }
                 .toggleStyle(.switch)
                 .disabled(isSaving)
                 .accessibilityIdentifier("icloud.syncUnreadContent")
-                Text(I18N.localized("收藏正文始终同步。关闭此选项会取消未发送的未读正文；已上传副本由云端清理处理。", englishFallback: "Starred content always syncs. Turning this off cancels unsent unread content; uploaded copies are handled by cloud cleanup."))
+                Text(I18N.localized("收藏文章始终同步；开启后在多台设备间同步未读文章全文。", englishFallback: "Starred articles always sync; enable to sync full unread content across your devices."))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Text(I18N.shared.localizedFormat("待发送更改：%lld", snapshot.pendingChanges))
-                    .accessibilityIdentifier("icloud.pendingChanges")
+                HStack(spacing: 6) {
+                    if snapshot.pendingChanges > 0 {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        Text(I18N.shared.localizedFormat("待发送更改：%lld", snapshot.pendingChanges))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Image(systemName: "checkmark.icloud.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.green)
+                        Text(I18N.localized("已与 iCloud 保持同步", englishFallback: "Up to date with iCloud"))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .accessibilityIdentifier("icloud.pendingChanges")
                 if snapshot.missingArticleIdentities > 0 {
                     Text(I18N.shared.localizedFormat("历史文章缺少原始身份：%lld，暂留本地。", snapshot.missingArticleIdentities))
+                        .foregroundStyle(.orange)
                         .accessibilityIdentifier("icloud.missingIdentities")
                 }
                 if snapshot.deferredBodies > 0 {
                     Text(I18N.shared.localizedFormat("正文超过同步大小限制：%lld，仍可在本机阅读。", snapshot.deferredBodies))
+                        .foregroundStyle(.secondary)
                         .accessibilityIdentifier("icloud.deferredBodies")
                 }
                 if snapshot.waitingArticleStates + snapshot.waitingRelationships + snapshot.waitingBodies > 0 {
                     Text(I18N.shared.localizedFormat("待恢复：文章状态 %lld，目录关系 %lld，正文 %lld。", snapshot.waitingArticleStates, snapshot.waitingRelationships, snapshot.waitingBodies))
+                        .foregroundStyle(.orange)
                         .accessibilityIdentifier("icloud.inbox")
                 }
             } else if errorMessage == nil {
@@ -151,40 +176,78 @@ struct ICloudAccountSettingsRow: View {
                 Text(errorMessage).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Button(I18N.localized("查看云端记录", englishFallback: "View Cloud Records")) {
-                presentedSheet = .inventory
+            DisclosureGroup(isExpanded: $isAdvancedExpanded) {
+                VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(I18N.localized("云端记录与维护", englishFallback: "Cloud Records & Maintenance"))
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        HStack(spacing: 8) {
+                            Button(I18N.localized("查看云端记录", englishFallback: "View Cloud Records")) {
+                                presentedSheet = .inventory
+                            }
+                            .controlSize(.small)
+                            .disabled(!account.isEnabled || !store.supportsICloudSync || snapshot?.isPaused == true)
+                            .accessibilityIdentifier("icloud.cloudInventory")
+                            Button(I18N.localized("审阅云端历史清理…", englishFallback: "Review Cloud History Cleanup…")) {
+                                presentedSheet = .retention
+                            }
+                            .controlSize(.small)
+                            .disabled(!account.isEnabled || !store.supportsICloudSync || snapshot?.isPaused == true)
+                            .accessibilityIdentifier("icloud.retentionReview")
+                            Button(I18N.localized("复核旧云资料", englishFallback: "Review Older Cloud Data")) {
+                                presentedSheet = .residue
+                            }
+                            .controlSize(.small)
+                            .disabled(!account.isEnabled || !store.supportsICloudSync)
+                            .accessibilityIdentifier("icloud.cloudResidueReview")
+                        }
+                    }
+                    Divider().opacity(0.3)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(I18N.localized("资料恢复与重置", englishFallback: "Data Recovery & Reset"))
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        HStack(spacing: 8) {
+                            Button(I18N.localized("查看恢复资料", englishFallback: "Review Recovery Data")) {
+                                presentedSheet = .recovery
+                            }
+                            .controlSize(.small)
+                            .accessibilityIdentifier("icloud.recoveryReview")
+                            Button(I18N.localized("恢复原账号同步…", englishFallback: "Resume the Original Account’s Sync…")) {
+                                presentedSheet = .originalAccountResume
+                            }
+                            .controlSize(.small)
+                            .disabled(!account.isEnabled)
+                            .accessibilityIdentifier("icloud.originalAccountResume")
+                        }
+                        HStack(spacing: 8) {
+                            Button(I18N.localized("保留归档并恢复当前云库…", englishFallback: "Keep an Archive and Restore the Current Cloud Library…")) {
+                                presentedSheet = .archiveRecovery
+                            }
+                            .controlSize(.small)
+                            .disabled(!account.isEnabled)
+                            .accessibilityIdentifier("icloud.archiveRecovery")
+                            Button(I18N.localized("保留旧云资料并准备新云库…", englishFallback: "Keep Old Cloud Data and Prepare a New Library…")) {
+                                presentedSheet = .newLibrary
+                            }
+                            .controlSize(.small)
+                            .disabled(!account.isEnabled || !store.supportsICloudSync)
+                            .accessibilityIdentifier("icloud.newLibraryReview")
+                        }
+                    }
+                }
+                .padding(.top, 6)
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 11))
+                    Text(I18N.localized("高级与云端维护选项", englishFallback: "Advanced & Cloud Maintenance Options"))
+                        .font(.caption)
+                }
+                .foregroundStyle(.secondary)
             }
-            .disabled(!account.isEnabled || !store.supportsICloudSync || snapshot?.isPaused == true)
-            .accessibilityIdentifier("icloud.cloudInventory")
-            Button(I18N.localized("审阅云端历史清理…", englishFallback: "Review Cloud History Cleanup…")) {
-                presentedSheet = .retention
-            }
-            .disabled(!account.isEnabled || !store.supportsICloudSync || snapshot?.isPaused == true)
-            .accessibilityIdentifier("icloud.retentionReview")
-            Button(I18N.localized("保留旧云资料并准备新云库…", englishFallback: "Keep Old Cloud Data and Prepare a New Library…")) {
-                presentedSheet = .newLibrary
-            }
-            .disabled(!account.isEnabled || !store.supportsICloudSync)
-            .accessibilityIdentifier("icloud.newLibraryReview")
-            Button(I18N.localized("查看恢复资料", englishFallback: "Review Recovery Data")) {
-                presentedSheet = .recovery
-            }
-            .accessibilityIdentifier("icloud.recoveryReview")
-            Button(I18N.localized("恢复原账号同步…", englishFallback: "Resume the Original Account’s Sync…")) {
-                presentedSheet = .originalAccountResume
-            }
-            .disabled(!account.isEnabled)
-            .accessibilityIdentifier("icloud.originalAccountResume")
-            Button(I18N.localized("保留归档并恢复当前云库…", englishFallback: "Keep an Archive and Restore the Current Cloud Library…")) {
-                presentedSheet = .archiveRecovery
-            }
-            .disabled(!account.isEnabled)
-            .accessibilityIdentifier("icloud.archiveRecovery")
-            Button(I18N.localized("复核旧云资料", englishFallback: "Review Older Cloud Data")) {
-                presentedSheet = .residue
-            }
-            .disabled(!account.isEnabled || !store.supportsICloudSync)
-            .accessibilityIdentifier("icloud.cloudResidueReview")
+            .accessibilityIdentifier("icloud.advancedOptions")
         }
         .font(.caption)
         .sheet(item: $presentedSheet) { sheet in
@@ -243,7 +306,12 @@ struct ICloudLocalArchiveSettingsRow: View {
                 Image(systemName: "archivebox").font(.system(size: 20))
                     .foregroundStyle(.secondary).frame(width: 28)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(account.displayName).font(.system(size: 14, weight: .semibold))
+                    HStack(spacing: 6) {
+                        Text(account.displayName).font(.system(size: 14, weight: .semibold))
+                        #if os(macOS)
+                        BetaBadge()
+                        #endif
+                    }
                     Text(I18N.localized("只读本机归档", englishFallback: "Read-only Local Archive"))
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -252,15 +320,18 @@ struct ICloudLocalArchiveSettingsRow: View {
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.leading, 40)
-            Button(I18N.localized("阅读归档", englishFallback: "Read Archive")) { presentedSheet = .reader }
-                .controlSize(.small).padding(.leading, 40)
-                .accessibilityIdentifier("icloud.readArchive")
-            Button(I18N.localized("选择归档资料复制到当前 iCloud…", englishFallback: "Select Archived Data to Copy to the Current iCloud Account…")) { presentedSheet = .copy }
-                .controlSize(.small).padding(.leading, 40)
-                .accessibilityIdentifier("icloud.copyArchive")
-            Button(I18N.localized("查看恢复资料", englishFallback: "Review Recovery Data")) { presentedSheet = .review }
-                .controlSize(.small).padding(.leading, 40)
-                .accessibilityIdentifier("icloud.archiveRecoveryReview")
+            HStack(spacing: 8) {
+                Button(I18N.localized("阅读归档", englishFallback: "Read Archive")) { presentedSheet = .reader }
+                    .controlSize(.small)
+                    .accessibilityIdentifier("icloud.readArchive")
+                Button(I18N.localized("选择归档资料复制到当前 iCloud…", englishFallback: "Select Archived Data to Copy to the Current iCloud Account…")) { presentedSheet = .copy }
+                    .controlSize(.small)
+                    .accessibilityIdentifier("icloud.copyArchive")
+                Button(I18N.localized("查看恢复资料", englishFallback: "Review Recovery Data")) { presentedSheet = .review }
+                    .controlSize(.small)
+                    .accessibilityIdentifier("icloud.archiveRecoveryReview")
+            }
+            .padding(.leading, 40)
         }
         .sheet(item: $presentedSheet) { sheet in
             switch sheet {
