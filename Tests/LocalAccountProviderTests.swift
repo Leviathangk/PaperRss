@@ -635,6 +635,65 @@ final class LocalAccountProviderTests: XCTestCase {
         XCTAssertNotNil(state, "当 state 丢失时回填必须创建防御性 state 兜底")
         XCTAssertEqual(state?.isRead, true, "回填条目兜底状态必须为已读，防止幽灵复活")
     }
+
+    func testFeedRenameAndRefreshProtection() throws {
+        let feed = try provider.addFeed(
+            title: "Original Title",
+            feedURL: URL(string: "https://example.com/rename-feed.xml")!
+        )
+        XCTAssertEqual(feed.title, "Original Title")
+        XCTAssertNil(feed.customTitle)
+        XCTAssertEqual(feed.originalTitle, "Original Title")
+
+        // 1. 重命名订阅源
+        try provider.renameFeed(feedID: feed.id, newTitle: "My Custom Feed Name")
+        var feeds = try provider.fetchFeeds()
+        let renamed = try XCTUnwrap(feeds.first { $0.id == feed.id })
+        XCTAssertEqual(renamed.title, "My Custom Feed Name")
+        XCTAssertEqual(renamed.customTitle, "My Custom Feed Name")
+
+        // 2. 模拟网络抓取刷新（RSS 返回了新标题 "Remote Title 2.0"）
+        let refreshResult = LocalAccountProvider.SingleFeedRefreshResult(
+            feedID: feed.id,
+            oldTitle: renamed.title,
+            result: .success(.updated(
+                ParsedFeed(title: "Remote Title 2.0", siteURL: nil, iconURL: nil, entries: []),
+                etag: "etag-new",
+                lastModified: "mod-new"
+            ))
+        )
+        let outcome = try provider.applyRefreshResult(refreshResult)
+        XCTAssertTrue(outcome.updated)
+
+        // 验证：刷新后用户的自定义名称不被覆盖，originalTitle 同步更新为远端最新标题
+        feeds = try provider.fetchFeeds()
+        let afterRefresh = try XCTUnwrap(feeds.first { $0.id == feed.id })
+        XCTAssertEqual(afterRefresh.title, "My Custom Feed Name", "刷新绝不能覆盖用户重命名的标题")
+        XCTAssertEqual(afterRefresh.customTitle, "My Custom Feed Name")
+        XCTAssertEqual(afterRefresh.originalTitle, "Remote Title 2.0", "originalTitle 必须记录远端最新标题")
+
+        // 3. 恢复默认名称（重命名为 originalTitle）
+        try provider.renameFeed(feedID: feed.id, newTitle: "Remote Title 2.0")
+        feeds = try provider.fetchFeeds()
+        let reverted = try XCTUnwrap(feeds.first { $0.id == feed.id })
+        XCTAssertEqual(reverted.title, "Remote Title 2.0")
+        XCTAssertNil(reverted.customTitle, "恢复默认名称后 customTitle 必须为 nil")
+
+        // 4. customTitle 为 nil 时，下一次刷新正常更新 title
+        let secondRefreshResult = LocalAccountProvider.SingleFeedRefreshResult(
+            feedID: feed.id,
+            oldTitle: reverted.title,
+            result: .success(.updated(
+                ParsedFeed(title: "Remote Title 3.0", siteURL: nil, iconURL: nil, entries: []),
+                etag: "etag-3",
+                lastModified: "mod-3"
+            ))
+        )
+        _ = try provider.applyRefreshResult(secondRefreshResult)
+        feeds = try provider.fetchFeeds()
+        let afterSecondRefresh = try XCTUnwrap(feeds.first { $0.id == feed.id })
+        XCTAssertEqual(afterSecondRefresh.title, "Remote Title 3.0", "未重命名状态下刷新应正常同步远端标题")
+    }
 }
 
 private final class FeedServiceHeaderCaptureURLProtocol: URLProtocol, @unchecked Sendable {

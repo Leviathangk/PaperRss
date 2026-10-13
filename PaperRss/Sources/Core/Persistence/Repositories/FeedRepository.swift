@@ -66,8 +66,12 @@ public final class FeedRepository: Sendable {
         in db: Database
     ) throws {
         guard var record = try fetchFeed(id: feedID, in: db) else { return }
-        if let title { record.title = title }
-        if let siteURL { record.siteURL = siteURL }
+        if let title {
+            record.originalTitle = title
+            if record.customTitle == nil {
+                record.title = title
+            }
+        }
         if let storedIconURL { record.storedIconURL = storedIconURL }
         if let etag { record.etag = etag }
         if let lastModified { record.lastModified = lastModified }
@@ -89,6 +93,8 @@ public final class FeedRepository: Sendable {
         SELECT
             f.id AS id,
             f.title AS title,
+            f.custom_title AS custom_title,
+            COALESCE(f.original_title, f.title) AS original_title,
             f.site_url AS site_url,
             f.feed_url AS feed_url,
             fo.name AS folder_name,
@@ -124,6 +130,8 @@ public final class FeedRepository: Sendable {
         SELECT
             f.id AS id,
             f.title AS title,
+            f.custom_title AS custom_title,
+            COALESCE(f.original_title, f.title) AS original_title,
             f.site_url AS site_url,
             f.feed_url AS feed_url,
             fo.name AS folder_name,
@@ -159,8 +167,9 @@ public final class FeedRepository: Sendable {
               let uuid = UUID(uuidString: idString),
               let feedURLString: String = row["feed_url"],
               let feedURL = URL(string: feedURLString) else { return nil }
-
         let title: String = row["title"]
+        let customTitle: String? = row["custom_title"]
+        let originalTitle: String? = row["original_title"] ?? title
         let siteURLString: String? = row["site_url"]
         let siteURL = siteURLString.flatMap { URL(string: $0) }
         let folderName: String? = row["folder_name"]
@@ -177,6 +186,8 @@ public final class FeedRepository: Sendable {
         return Feed(
             id: uuid,
             title: title,
+            customTitle: customTitle,
+            originalTitle: originalTitle,
             siteURL: siteURL,
             feedURL: feedURL,
             folder: folderName,
@@ -187,6 +198,39 @@ public final class FeedRepository: Sendable {
             updatedAt: updatedAt,
             storedIconURL: storedIconURL
         )
+    }
+
+    public func renameFeed(
+        feedID: String,
+        newTitle: String,
+        in db: Database
+    ) throws {
+        let clean = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty, var record = try fetchFeed(id: feedID, in: db) else { return }
+
+        let original = record.originalTitle ?? record.title
+        if clean == original {
+            let now = Date().timeIntervalSince1970
+            try db.execute(sql: """
+                UPDATE feeds
+                SET custom_title = NULL, title = ?, updated_at = ?
+                WHERE id = ?;
+                """, arguments: [original, now, feedID])
+            return
+        }
+        if record.originalTitle == nil {
+            record.originalTitle = original
+        }
+        record.customTitle = clean
+        record.title = clean
+        record.updatedAt = Date().timeIntervalSince1970
+        try record.save(db)
+    }
+
+    public func renameFeed(feedID: String, newTitle: String) async throws {
+        try database.write { db in
+            try renameFeed(feedID: feedID, newTitle: newTitle, in: db)
+        }
     }
 
     // MARK: - Folders & Management

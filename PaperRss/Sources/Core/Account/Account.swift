@@ -101,6 +101,7 @@ public protocol AccountProvider: Sendable {
     // MARK: - 订阅与文件夹生命周期管理 (CRUD)
     func addFeed(url: URL, title: String?, folder: String?) async throws -> Feed
     func deleteFeed(feedID: UUID) async throws
+    func renameFeed(feedID: UUID, newTitle: String) async throws
     func addFolder(name: String) async throws -> FolderRecord
     func deleteFolder(name: String) async throws
 }
@@ -109,6 +110,7 @@ public extension AccountProvider {
     // Existing external test providers remain reader providers unless they
     // explicitly advertise direct local fetching.
     var accountType: AccountType { .freshRSS }
+    func renameFeed(feedID: UUID, newTitle: String) async throws {}
 }
 
 /// 账号刷新进度；总量未知时显示准备状态，计数仅在落库批次完成后发布。

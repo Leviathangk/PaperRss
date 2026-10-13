@@ -297,6 +297,34 @@ public actor ReaderAccountProvider: AccountProvider {
         }
     }
 
+    public func renameFeed(feedID: UUID, newTitle: String) async throws {
+        let clean = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+
+        let externalID: String? = try database.read { db in
+            try FeedRecord.filter(Column("id") == feedID.uuidString && Column("account_id") == self.accountID).fetchOne(db)?.externalID
+        }
+
+        if let externalID, !externalID.isEmpty {
+            try await apiClient.editSubscription(streamID: externalID, title: clean)
+        }
+
+        let now = Date().timeIntervalSince1970
+        try database.write { db in
+            if var record = try FeedRecord.filter(Column("id") == feedID.uuidString && Column("account_id") == self.accountID).fetchOne(db) {
+                if let original = record.originalTitle, clean == original {
+                    record.customTitle = nil
+                    record.title = original
+                } else {
+                    record.customTitle = clean
+                    record.title = clean
+                }
+                record.updatedAt = now
+                try record.save(db)
+            }
+        }
+    }
+
     public func addFolder(name: String) async throws -> FolderRecord {
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else {
@@ -539,7 +567,10 @@ public actor ReaderAccountProvider: AccountProvider {
                     if existing.isDeleted {
                         try ItemRecord.filter(Column("feed_id") == existing.id).deleteAll(db)
                     }
-                    existing.title = sub.title
+                    existing.originalTitle = sub.title
+                    if existing.customTitle == nil {
+                        existing.title = sub.title
+                    }
                     existing.feedURL = feedURL
                     existing.siteURL = sub.htmlUrl
                     existing.storedIconURL = try resolveStoredIconURL(for: feedURL, rawRemoteIcon: sub.iconUrl, currentStored: existing.storedIconURL)
@@ -552,7 +583,10 @@ public actor ReaderAccountProvider: AccountProvider {
                         try ItemRecord.filter(Column("feed_id") == existingByURL.id).deleteAll(db)
                     }
                     existingByURL.externalID = sub.id
-                    existingByURL.title = sub.title
+                    existingByURL.originalTitle = sub.title
+                    if existingByURL.customTitle == nil {
+                        existingByURL.title = sub.title
+                    }
                     existingByURL.siteURL = sub.htmlUrl
                     existingByURL.storedIconURL = try resolveStoredIconURL(for: feedURL, rawRemoteIcon: sub.iconUrl, currentStored: existingByURL.storedIconURL)
                     existingByURL.isDeleted = false
@@ -567,6 +601,8 @@ public actor ReaderAccountProvider: AccountProvider {
                         accountID: self.accountID,
                         externalID: sub.id,
                         title: sub.title,
+                        customTitle: nil,
+                        originalTitle: sub.title,
                         siteURL: sub.htmlUrl,
                         feedURL: feedURL,
                         etag: nil,

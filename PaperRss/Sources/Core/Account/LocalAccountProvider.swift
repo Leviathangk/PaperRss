@@ -123,6 +123,7 @@ public final class LocalAccountProvider: AccountProvider, Sendable {
                 accountID: self.accountID,
                 externalID: nil,
                 title: title,
+                originalTitle: title,
                 siteURL: siteURL?.absoluteString,
                 feedURL: feedURLString,
                 etag: nil,
@@ -142,6 +143,7 @@ public final class LocalAccountProvider: AccountProvider, Sendable {
             return Feed(
                 id: feedUUID,
                 title: title,
+                originalTitle: title,
                 siteURL: siteURL,
                 feedURL: feedURL,
                 folder: folder,
@@ -184,6 +186,12 @@ public final class LocalAccountProvider: AccountProvider, Sendable {
     public func renameFolder(oldName: String, newName: String) throws {
         try database.write { db in
             try self.feedRepository.renameFolder(oldName: oldName, newName: newName, accountID: self.accountID, in: db)
+        }
+    }
+
+    public func renameFeed(feedID: UUID, newTitle: String) throws {
+        try database.write { db in
+            try self.feedRepository.renameFeed(feedID: feedID.uuidString, newTitle: newTitle, in: db)
         }
     }
 
@@ -537,6 +545,7 @@ public final class LocalAccountProvider: AccountProvider, Sendable {
                 let id = UUID()
                 feedID = id.uuidString
                 try feedRepository.saveFeed(FeedRecord(id: feedID, accountID: accountID, title: title,
+                    customTitle: subscription.title, originalTitle: title,
                     siteURL: subscription.siteURL?.absoluteString, feedURL: feedURLString,
                     updatedAt: now, sortOrder: nextSortOrder), in: db)
                 newFeedIDs.append(id)
@@ -576,6 +585,12 @@ public final class LocalAccountProvider: AccountProvider, Sendable {
     public func deleteFeed(feedID: UUID) async throws {
         try database.write { db in
             try self.feedRepository.deleteFeed(id: feedID.uuidString, in: db)
+        }
+    }
+
+    public func renameFeed(feedID: UUID, newTitle: String) async throws {
+        try database.write { db in
+            try self.feedRepository.renameFeed(feedID: feedID.uuidString, newTitle: newTitle, in: db)
         }
     }
 

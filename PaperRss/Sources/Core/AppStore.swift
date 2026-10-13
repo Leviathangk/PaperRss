@@ -1219,6 +1219,48 @@ public final class AppStore: ObservableObject {
         reloadState()
     }
 
+    public func renameFeed(_ feed: Feed, to newTitle: String) {
+        let clean = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty && clean != feed.title else { return }
+        let accID = accountID(for: feed.id) ?? "local-default"
+        if accID == "local-default" || accounts.contains(where: { $0.id == accID && $0.type == AccountType.iCloud.rawValue }) {
+            do {
+                try directProvider(for: accID).renameFeed(feedID: feed.id, newTitle: clean)
+                reloadState()
+            } catch {
+                reportError(error, module: .settings)
+                lastError = error.localizedDescription
+            }
+        } else {
+            Task {
+                if let provider = await syncCoordinator.provider(for: accID) {
+                    do {
+                        try await provider.renameFeed(feedID: feed.id, newTitle: clean)
+                        await reloadStateAsync()
+                    } catch {
+                        reportError(error, module: .settings)
+                        lastError = error.localizedDescription
+                    }
+                }
+            }
+        }
+    }
+
+    public func renameFeedAsync(_ feed: Feed, to newTitle: String) async throws {
+        let clean = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty && clean != feed.title else { return }
+        let accID = accountID(for: feed.id) ?? "local-default"
+        if accID == "local-default" || accounts.contains(where: { $0.id == accID && $0.type == AccountType.iCloud.rawValue }) {
+            try await directProvider(for: accID).renameFeed(feedID: feed.id, newTitle: clean)
+            await reloadStateAsync()
+        } else {
+            if let provider = await syncCoordinator.provider(for: accID) {
+                try await provider.renameFeed(feedID: feed.id, newTitle: clean)
+                await reloadStateAsync()
+            }
+        }
+    }
+
     @discardableResult
     public func addFeed(urlText: String, title: String? = nil, targetAccountID: String? = nil, folder: String? = nil) async -> Feed? {
         guard let url = normalizedURL(urlText) else {

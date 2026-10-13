@@ -83,6 +83,8 @@ public struct FeedRefreshOutcome: Identifiable, Equatable, Sendable {
 public struct Feed: Identifiable, Codable, Hashable, Sendable {
     public var id: UUID
     public var title: String
+    public var customTitle: String?
+    public var originalTitle: String?
     public var siteURL: URL?
     public var feedURL: URL
     public var folder: String?
@@ -96,9 +98,11 @@ public struct Feed: Identifiable, Codable, Hashable, Sendable {
     /// over the generic twitter.com favicon.
     public var storedIconURL: URL?
 
-    public init(id: UUID = UUID(), title: String, siteURL: URL? = nil, feedURL: URL, folder: String? = nil, etag: String? = nil, lastModified: String? = nil, lastRefreshedAt: Date? = nil, isDeleted: Bool = false, updatedAt: Date = .now, storedIconURL: URL? = nil) {
+    public init(id: UUID = UUID(), title: String, customTitle: String? = nil, originalTitle: String? = nil, siteURL: URL? = nil, feedURL: URL, folder: String? = nil, etag: String? = nil, lastModified: String? = nil, lastRefreshedAt: Date? = nil, isDeleted: Bool = false, updatedAt: Date = .now, storedIconURL: URL? = nil) {
         self.id = id
         self.title = title
+        self.customTitle = customTitle
+        self.originalTitle = originalTitle
         self.siteURL = siteURL
         self.feedURL = feedURL
         self.folder = folder
@@ -131,7 +135,7 @@ public struct Feed: Identifiable, Codable, Hashable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, siteURL, feedURL, folder, etag, lastModified
+        case id, title, customTitle, originalTitle, siteURL, feedURL, folder, etag, lastModified
         case lastRefreshedAt, isDeleted, updatedAt, storedIconURL
     }
 
@@ -140,6 +144,8 @@ public struct Feed: Identifiable, Codable, Hashable, Sendable {
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         title = try container.decodeIfPresent(String.self, forKey: .title) ?? "未命名订阅"
         siteURL = try container.decodeIfPresent(URL.self, forKey: .siteURL)
+        customTitle = try container.decodeIfPresent(String.self, forKey: .customTitle)
+        originalTitle = try container.decodeIfPresent(String.self, forKey: .originalTitle)
         feedURL = try container.decode(URL.self, forKey: .feedURL)
         folder = try container.decodeIfPresent(String.self, forKey: .folder)
         etag = try container.decodeIfPresent(String.self, forKey: .etag)

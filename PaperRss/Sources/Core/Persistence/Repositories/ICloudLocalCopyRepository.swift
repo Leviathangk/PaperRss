@@ -100,6 +100,7 @@ struct ICloudLocalCopyRepository: Sendable {
                     let id = UUID().uuidString
                     // ETag, last fetch, external IDs and derived icons stay in source.
                     try FeedRecord(id: id, accountID: plan.selection.targetAccountID, title: source.title,
+                                   customTitle: source.customTitle, originalTitle: source.originalTitle,
                                    siteURL: source.siteURL, feedURL: source.feedURL,
                                    updatedAt: now, sortOrder: source.sortOrder).insert(db)
                     feedIDs[source.id] = id
