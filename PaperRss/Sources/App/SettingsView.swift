@@ -534,9 +534,7 @@ struct SettingsView: View {
             ) {
                 // 本地账号
                 HStack(spacing: 12) {
-                    Image(systemName: "macbook.and.iphone")
-                        .font(.system(size: 20))
-                        .foregroundStyle(settingsAccentColor)
+                    AccountProviderIcon(type: .local)
                         .frame(width: 28)
 
                     VStack(alignment: .leading, spacing: 2) {
@@ -596,9 +594,7 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             // 主行：图标 + 标题与端点 + Toggle
                             HStack(spacing: 12) {
-                                Image(systemName: account.type == AccountType.iCloud.rawValue ? "icloud" : account.type == AccountType.miniflux.rawValue ? "flame" : "server.rack")
-                                    .font(.system(size: 20))
-                                    .foregroundStyle(settingsAccentColor)
+                                AccountProviderIcon(type: AccountType(rawValue: account.type) ?? .local)
                                     .frame(width: 28)
 
                                 VStack(alignment: .leading, spacing: 2) {
@@ -611,6 +607,14 @@ struct SettingsView: View {
                                         }
                                         #endif
                                     }
+                                    #if os(macOS)
+                                    if account.type == AccountType.iCloud.rawValue {
+                                        Text(I18N.localized("当前为开发者调试模式，后续再迭代 UI。", englishFallback: "Currently in developer debugging mode. The UI will be refined in future updates."))
+                                            .font(.footnote)
+                                            .foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    #endif
                                     if let user = account.username, let url = account.endpointURL {
                                         Text("\(user) @ \(url)")
                                             .font(.footnote)
@@ -3849,13 +3853,6 @@ private enum AccountProviderType: String, CaseIterable, Identifiable {
         }
     }
 
-    var icon: String {
-        switch self {
-        case .iCloud: return "icloud"
-        case .freshRSS: return "server.rack"
-        case .miniflux: return "flame"
-        }
-    }
 }
 
 private struct AddAccountSheet: View {
@@ -3955,9 +3952,7 @@ private struct AddAccountSheet: View {
                     }
                 } label: {
                     HStack(spacing: 14) {
-                        Image(systemName: provider.icon)
-                            .font(.system(size: 22))
-                            .foregroundStyle(Color(paperHex: paperAppearancePalette.accentHex))
+                        AccountProviderIcon(type: provider.accountType)
                             .frame(width: 32)
 
                         VStack(alignment: .leading, spacing: 2) {
@@ -3974,6 +3969,14 @@ private struct AddAccountSheet: View {
                             Text(provider.subtitle)
                                 .font(.footnote)
                                 .foregroundStyle(Color.secondary)
+                            #if os(macOS)
+                            if provider == .iCloud {
+                                Text(I18N.localized("当前为开发者调试模式，后续再迭代 UI。", englishFallback: "Currently in developer debugging mode. The UI will be refined in future updates."))
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            #endif
                         }
 
                         Spacer()

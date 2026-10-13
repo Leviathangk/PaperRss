@@ -99,6 +99,10 @@ cat > "$PLIST_PATH" <<EOF
     <string>developer-id</string>
     <key>teamID</key>
     <string>${TEAM_ID:-PLACEHOLDER}</string>
+    <key>signingStyle</key>
+    <string>automatic</string>
+    <key>iCloudContainerEnvironment</key>
+    <string>Production</string>
 </dict>
 </plist>
 EOF
@@ -107,6 +111,7 @@ xcodebuild -exportArchive \
   -archivePath "$ARCHIVE_PATH" \
   -exportOptionsPlist "$PLIST_PATH" \
   -exportPath "$EXPORT_DIR" \
+  -allowProvisioningUpdates \
   -quiet || fail "Developer ID 导出失败（检查证书与 --team-id）"
 [[ -d "$APP_PATH" ]] || fail "导出后未找到 $APP_PATH"
 pass "[PASS 3] Developer ID 导出成功: $APP_PATH"

@@ -61,6 +61,10 @@ actor ICloudAccountProvider: AccountProvider {
     private var automaticSession: UUID?
     private var localChangeTask: Task<Void, Never>?
     private var automaticFailureReported = false
+    private static let foregroundFetchInterval: TimeInterval = 120
+    private let foregroundNow: @Sendable () -> Date
+    private var lastForegroundFetchAt: Date?
+    private var foregroundFetchID: UUID?
     private var bootstrapRetryTask: Task<Void, Never>?
     private var bootstrapRetryID: UUID?
     private var bootstrapDeadline: Date?
@@ -98,6 +102,7 @@ actor ICloudAccountProvider: AccountProvider {
         accountID: String, database: LibraryDatabase,
         customFeedFetcher: (@Sendable (Feed, Bool) async throws -> FeedFetchResult)? = nil,
         sync: (any ICloudAccountSyncing)? = nil,
+        foregroundNow: @escaping @Sendable () -> Date = { Date() },
         bootstrapNow: @escaping @Sendable () -> Date = { Date() },
         bootstrapSleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
         retentionTransportFactory: (@Sendable (String) -> any ICloudRetentionExecutionTransport)? = nil,
@@ -124,6 +129,7 @@ actor ICloudAccountProvider: AccountProvider {
         local = LocalAccountProvider(accountID: accountID, database: database, customFeedFetcher: customFeedFetcher)
         let driver = sync ?? ICloudSyncEngineDriver(repository: records)
         self.sync = driver
+        self.foregroundNow = foregroundNow
         maintenanceScheduler = .init(repository: records, source: driver, sleep: maintenanceSleep)
         self.bootstrapNow = bootstrapNow
         self.bootstrapSleep = bootstrapSleep
@@ -661,6 +667,8 @@ actor ICloudAccountProvider: AccountProvider {
         let session = UUID()
         automaticSession = session
         automaticFailureReported = false
+        lastForegroundFetchAt = nil
+        foregroundFetchID = nil
         do {
             let callback: @Sendable (ICloudAutomaticSyncEvent) async -> Void = { [weak self] event in
                 await self?.automaticEvent(event, session: session)
@@ -708,7 +716,7 @@ actor ICloudAccountProvider: AccountProvider {
             }
             if fetchRemote {
                 do {
-                    if !(try await waitForBootstrapRetry(session: session)) { try await sync.fetchChanges() }
+                    try await fetchForegroundChangesIfDue(session: session)
                 }
                 catch ICloudEngineError.alreadySyncing {}
                 catch { await automaticEvent(.failed(error), session: session) }
@@ -716,6 +724,28 @@ actor ICloudAccountProvider: AccountProvider {
             let signal = try await database.readAsync { try ICloudAutomaticSyncSignal.fetch(accountID: self.accountID, in: $0) }
             await metadataChanged(signal, session: session)
         } catch { await automaticEvent(.failed(error), session: session) }
+    }
+
+    /// Only activation-driven pulls are throttled. Durable local edits, SDK
+    /// push delivery and explicit refresh continue through their own paths.
+    private func fetchForegroundChangesIfDue(session: UUID) async throws {
+        guard foregroundFetchID == nil else { return }
+        let now = foregroundNow()
+        if let lastForegroundFetchAt {
+            let elapsed = now.timeIntervalSince(lastForegroundFetchAt)
+            if elapsed >= 0, elapsed < Self.foregroundFetchInterval { return }
+        }
+        let id = UUID()
+        foregroundFetchID = id
+        defer { if foregroundFetchID == id { foregroundFetchID = nil } }
+        guard !(try await waitForBootstrapRetry(session: session)), automaticSession == session else { return }
+        lastForegroundFetchAt = now
+        do {
+            try await sync.fetchChanges()
+        } catch {
+            if automaticSession == session { lastForegroundFetchAt = nil }
+            throw error
+        }
     }
 
     private func metadataChanged(_ signal: ICloudAutomaticSyncSignal?, session: UUID) async {
@@ -781,14 +811,15 @@ actor ICloudAccountProvider: AccountProvider {
                 return
             case .started:
                 automaticFailureReported = false
-                try await database.writeAsync { db in
-                    guard try AccountRecord.fetchOne(db, key: self.accountID)?.isEnabled == true else { return }
+                let showsInitialProgress = try await database.writeAsync { db in
+                    guard try AccountRecord.fetchOne(db, key: self.accountID)?.isEnabled == true else { return false }
                     var state = try AccountSyncStateRecord.fetchOne(db, key: self.accountID) ?? .init(accountID: self.accountID)
                     state.lastSyncStartedAt = now
                     try state.save(db)
+                    return !state.initialSyncCompleted
                 }
-                guard automaticSession == session else { return }
-                await onProgress(.init())
+                guard automaticSession == session, refreshTask == nil else { return }
+                if showsInitialProgress { await onProgress(.init()) }
             case .completed:
                 let snapshot = try await records.accountSnapshot()
                 guard automaticSession == session else { return }
@@ -803,9 +834,10 @@ actor ICloudAccountProvider: AccountProvider {
                         try state.save(db)
                     }
                 }
-                guard automaticSession == session else { return }
+                guard automaticSession == session, refreshTask == nil else { return }
                 await onProgress(nil)
             case .failed(let error):
+                lastForegroundFetchAt = nil
                 guard !automaticFailureReported else { return }
                 automaticFailureReported = true
                 let message = ICloudSyncFailure.message(for: error)
@@ -816,7 +848,7 @@ actor ICloudAccountProvider: AccountProvider {
                     state.lastError = message
                     try state.save(db)
                 }
-                guard automaticSession == session else { return }
+                guard automaticSession == session, refreshTask == nil else { return }
                 await onProgress(nil)
             }
             guard automaticSession == session else { return }

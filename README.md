@@ -86,6 +86,8 @@ _本项目灵感启发自另一款优秀的开源RSS预读器 [NetNewsWire](http
 
 **稳定版 v1.4.5（Build 41）** 推荐所有用户升级：列表和正文切换更顺畅，修复普通列表滚动闪退与部分正文图片加载失败，并优化杂志翻页和阅读音浪。详情见 [更新记录](CHANGELOG.md)。
 
+**下一版候选 v1.5.0-beta.1（Build 42）**：新增 macOS iCloud 账户（Beta），同步订阅、目录、已读和收藏状态；收藏 RSS 正文始终同步，未读正文可选，AI 结果与密钥留在本机。另有订阅重命名、批量删除快捷键、摘要与双语排版、系统共享改进。候选包仍需完成 iCloud 分发配置与真实交互验收，尚未公开发布。
+
 从 [Releases](https://github.com/ohmyangboy/PaperRss/releases) 下载最新的 `.dmg` 安装包，打开后将 PaperRss 拖入 Applications 文件夹即可使用。
 
 > 📝 备注：签名问题已解决——所有产物均经过 Developer ID 签名与 Apple 公证，首次打开不会再出现「无法验证」提示。接下来版本更新会加快，敬请谅解。

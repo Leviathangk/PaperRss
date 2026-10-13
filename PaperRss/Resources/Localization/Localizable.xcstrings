@@ -9369,6 +9369,16 @@
         }
       }
     },
+    "当前为开发者调试模式，后续再迭代 UI。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Currently in developer debugging mode. The UI will be refined in future updates."
+          }
+        }
+      }
+    },
     "使用系统设置中的 iCloud 账号，在多台 Mac 之间同步阅读。" : {
       "localizations" : {
         "en" : {

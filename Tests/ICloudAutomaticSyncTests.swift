@@ -3,6 +3,13 @@ import GRDB
 import XCTest
 @testable import PaperRssCore
 
+private final class AutomaticSyncClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var date = Date(timeIntervalSince1970: 1_800_000_000)
+    func now() -> Date { lock.withLock { date } }
+    func advance(_ seconds: TimeInterval) { lock.withLock { date.addTimeInterval(seconds) } }
+}
+
 private actor AutomaticCloudProbe: ICloudAccountSyncing {
     nonisolated let supportsAutomaticSync = true
     let records: ICloudRecordRepository
@@ -13,11 +20,18 @@ private actor AutomaticCloudProbe: ICloudAccountSyncing {
     private var running = 0
     private var failuresRemaining: Int
     private let acknowledgementLimit: Int?
+    private var fetchFailuresRemaining: Int
+    private let fetchGate: AutomaticRSSGate?
+    private var remoteFetches = 0
+    private var visibleProgress: [AccountRefreshProgress] = []
 
-    init(records: ICloudRecordRepository, failures: Int = 0, acknowledgementLimit: Int? = nil) {
+    init(records: ICloudRecordRepository, failures: Int = 0, acknowledgementLimit: Int? = nil,
+         fetchFailures: Int = 0, fetchGate: AutomaticRSSGate? = nil) {
         self.records = records
         failuresRemaining = failures
         self.acknowledgementLimit = acknowledgementLimit
+        self.fetchFailuresRemaining = fetchFailures
+        self.fetchGate = fetchGate
     }
     func startAutomaticSync(onEvent: @escaping @Sendable (ICloudAutomaticSyncEvent) async -> Void) async throws {
         callbacks.append(onEvent)
@@ -39,15 +53,33 @@ private actor AutomaticCloudProbe: ICloudAccountSyncing {
         await callback?(.changed)
         await callback?(.completed)
     }
-    func fetchChanges() async throws {}
+    func fetchChanges() async throws {
+        remoteFetches += 1
+        let callback = callbacks.last
+        await callback?(.started)
+        await fetchGate?.waitOnce()
+        if fetchFailuresRemaining > 0 {
+            fetchFailuresRemaining -= 1
+            throw ICloudEngineError.temporarilyUnavailable
+        }
+        await callback?(.changed)
+        await callback?(.completed)
+    }
     func sendChanges() async throws { try await localChangesAvailable() }
     func stop() async { stops += 1 }
     func recordRSS() { rssFetches += 1 }
+    func recordProgress(_ progress: AccountRefreshProgress?) {
+        if let progress { visibleProgress.append(progress) }
+    }
+    func takeVisibleProgress() -> [AccountRefreshProgress] {
+        defer { visibleProgress.removeAll() }
+        return visibleProgress
+    }
     func emit(_ event: ICloudAutomaticSyncEvent, session: Int = 0) async {
         await callbacks[session](event)
     }
-    func counts() -> (announcements: Int, stops: Int, starts: Int, rss: Int, running: Int) {
-        (announcements, stops, callbacks.count, rssFetches, running)
+    func counts() -> (announcements: Int, stops: Int, starts: Int, rss: Int, running: Int, fetches: Int) {
+        (announcements, stops, callbacks.count, rssFetches, running, remoteFetches)
     }
 }
 
@@ -91,12 +123,14 @@ final class ICloudAutomaticSyncTests: XCTestCase {
         database = nil
         try FileManager.default.removeItem(at: directory)
     }
-    private func provider(_ probe: AutomaticCloudProbe, gate: AutomaticRSSGate? = nil) -> ICloudAccountProvider {
+    private func provider(_ probe: AutomaticCloudProbe, gate: AutomaticRSSGate? = nil,
+                          clock: AutomaticSyncClock? = nil) -> ICloudAccountProvider {
         let provider = ICloudAccountProvider(accountID: account, database: database, customFeedFetcher: { _, _ in
             await gate?.waitOnce()
             await probe.recordRSS()
             return .updated(.init(title: "Feed", siteURL: nil, iconURL: nil, entries: []), etag: nil, lastModified: nil)
-        }, sync: probe)
+        }, sync: probe, foregroundNow: { clock?.now() ?? Date() },
+        onProgress: { await probe.recordProgress($0) })
         providers.append(provider)
         return provider
     }
@@ -277,5 +311,121 @@ final class ICloudAutomaticSyncTests: XCTestCase {
         let counts = await probe.counts()
         XCTAssertEqual(counts.rss, 3)
         XCTAssertNotEqual(first, second)
+    }
+
+    func testForegroundFetchesAreThrottledWithoutDelayingLocalEdits() async throws {
+        let clock = AutomaticSyncClock(), probe = AutomaticCloudProbe(records: records)
+        let provider = provider(probe, clock: clock)
+        await provider.startAutomaticSync()
+        try await settled(probe, count: 1)
+
+        await provider.resumeAutomaticSync(fetchRemote: true)
+        for _ in 0..<5 { await provider.resumeAutomaticSync(fetchRemote: true) }
+        clock.advance(119)
+        await provider.resumeAutomaticSync(fetchRemote: true)
+        var counts = await probe.counts()
+        XCTAssertEqual(counts.fetches, 1)
+
+        try addFeed()
+        try await settled(probe, count: 2)
+        XCTAssertEqual(try records.pendingCount(), 0)
+        clock.advance(1)
+        await provider.resumeAutomaticSync(fetchRemote: true)
+        counts = await probe.counts()
+        XCTAssertEqual(counts.fetches, 2)
+        XCTAssertEqual(counts.rss, 0)
+    }
+
+    func testForegroundFetchIsCoalescedWhileRequestIsStillRunning() async throws {
+        let clock = AutomaticSyncClock(), gate = AutomaticRSSGate()
+        let probe = AutomaticCloudProbe(records: records, fetchGate: gate)
+        let provider = provider(probe, clock: clock)
+        await provider.startAutomaticSync()
+        try await settled(probe, count: 1)
+        let first = Task { await provider.resumeAutomaticSync(fetchRemote: true) }
+        try await eventually { await gate.entered() }
+        clock.advance(120)
+        await provider.resumeAutomaticSync(fetchRemote: true)
+        let counts = await probe.counts()
+        XCTAssertEqual(counts.fetches, 1)
+        await gate.release()
+        await first.value
+    }
+
+    func testFailedForegroundFetchRetriesWithinCooldownAndClearsError() async throws {
+        let clock = AutomaticSyncClock(), probe = AutomaticCloudProbe(records: records, fetchFailures: 1)
+        let provider = provider(probe, clock: clock)
+        await provider.startAutomaticSync()
+        try await settled(probe, count: 1)
+        await provider.resumeAutomaticSync(fetchRemote: true)
+        XCTAssertNotNil(try state()?.lastError)
+        await provider.resumeAutomaticSync(fetchRemote: true)
+        let counts = await probe.counts()
+        XCTAssertEqual(counts.fetches, 2)
+        XCTAssertNil(try state()?.lastError)
+        XCTAssertEqual(try state()?.consecutiveFailureCount, 0)
+    }
+
+    func testInitialAutomaticSyncShowsProgressAndLaterStateSyncIsSilent() async throws {
+        let probe = AutomaticCloudProbe(records: records)
+        let provider = provider(probe)
+        await provider.startAutomaticSync()
+        try await settled(probe, count: 1)
+        try await eventually { try self.state()?.initialSyncCompleted == true }
+        let initialProgress = await probe.takeVisibleProgress()
+        XCTAssertFalse(initialProgress.isEmpty)
+
+        try addFeed()
+        try await settled(probe, count: 2)
+        await provider.resumeAutomaticSync(fetchRemote: true)
+        let subsequentProgress = await probe.takeVisibleProgress()
+        XCTAssertTrue(subsequentProgress.isEmpty)
+        XCTAssertNil(try state()?.lastError)
+        XCTAssertNotNil(try state()?.lastSyncCompletedAt)
+    }
+
+    func testAsynchronousFailureReopensForegroundCooldown() async throws {
+        let clock = AutomaticSyncClock(), probe = AutomaticCloudProbe(records: records)
+        let provider = provider(probe, clock: clock)
+        await provider.startAutomaticSync()
+        try await settled(probe, count: 1)
+        await provider.resumeAutomaticSync(fetchRemote: true)
+        await probe.emit(.failed(ICloudEngineError.temporarilyUnavailable))
+        XCTAssertNotNil(try state()?.lastError)
+        await provider.resumeAutomaticSync(fetchRemote: true)
+        let counts = await probe.counts()
+        XCTAssertEqual(counts.fetches, 2)
+        XCTAssertNil(try state()?.lastError)
+    }
+
+    func testManualRefreshBypassesForegroundCooldownAndShowsProgress() async throws {
+        let clock = AutomaticSyncClock(), probe = AutomaticCloudProbe(records: records)
+        let provider = provider(probe, clock: clock)
+        await provider.startAutomaticSync()
+        try await settled(probe, count: 1)
+        await provider.resumeAutomaticSync(fetchRemote: true)
+        _ = await probe.takeVisibleProgress()
+
+        try addFeed()
+        _ = try await provider.refresh(reason: .manual)
+        let counts = await probe.counts(), progress = await probe.takeVisibleProgress()
+        XCTAssertEqual(counts.fetches, 2)
+        XCTAssertEqual(counts.rss, 1)
+        XCTAssertFalse(progress.isEmpty)
+        XCTAssertNotNil(try state()?.lastArticleFetchAt)
+    }
+
+    func testRestartedAutomaticSessionDoesNotReuseForegroundCooldown() async throws {
+        let clock = AutomaticSyncClock(), probe = AutomaticCloudProbe(records: records)
+        let provider = provider(probe, clock: clock)
+        await provider.startAutomaticSync()
+        try await settled(probe, count: 1)
+        await provider.resumeAutomaticSync(fetchRemote: true)
+        await provider.stop()
+        await provider.startAutomaticSync()
+        try await settled(probe, count: 2)
+        await provider.resumeAutomaticSync(fetchRemote: true)
+        let counts = await probe.counts()
+        XCTAssertEqual(counts.fetches, 2)
     }
 }

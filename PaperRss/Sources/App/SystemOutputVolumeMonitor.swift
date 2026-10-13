@@ -21,7 +21,7 @@ final class SystemOutputVolumeMonitor: ObservableObject {
 
     private init() {
         preferenceObserver = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
-            .sink { [weak self] _ in
+            .sink { @Sendable [weak self] _ in
                 Task { @MainActor [weak self] in self?.synchronizePreference() }
             }
         synchronizePreference()

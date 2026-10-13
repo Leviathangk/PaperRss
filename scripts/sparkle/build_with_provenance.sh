@@ -94,6 +94,7 @@ python3 "$ROOT_DIR/scripts/build-support.py" --lane all -- xcodebuild \
   -configuration "$CONFIGURATION" \
   -destination 'generic/platform=macOS' \
   -archivePath "$ARCHIVE_PATH" \
+  -allowProvisioningUpdates \
   -quiet \
   clean archive \
   MARKETING_VERSION="$VERSION" \
