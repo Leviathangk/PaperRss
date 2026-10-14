@@ -33,7 +33,7 @@ trigger: always_on
 - 除非必要，勿增实体
 - PaperRss对标业界最佳实践，参考netnewsware、freshRSS等优秀的开源实践
 - 验证工具与自主决策原则：仓库提供了部分验证能力，Agent 应根据实际改动性质、风险与上下文自主权衡并决定执行策略，避免机械式跑全套流程，按需启用[自动化测试与分级验证矩阵](../docs/verification-matrix.md)。
-- 发布全链路与 Release 门禁：遵守 SemVer（正式版 `vX.Y.Z`，预发布 `vX.Y.Z-beta.N`）；发布候选版本必须先完成受影响路径的真实交互验收，未经验收不得公开 Release。详见 [发布流程与质量门禁](../docs/release-process.md)。
+- 发布全链路与 Release 门禁：遵守 SemVer（正式版 `vX.Y.Z`，预发布 `vX.Y.Z-beta.N`）；Beta 版本通过必要自动化用例后即可按授权发布，UI 验证由用户人工完成，Agent 不主动执行或等待 UI 验收；稳定版仍须先完成受影响路径的真实交互验收。详见 [发布流程与质量门禁](../docs/release-process.md)。
 
 ## 工程边界
 
