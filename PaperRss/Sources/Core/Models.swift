@@ -692,7 +692,7 @@ public extension String {
         var value = self
         let newline = String(UnicodeScalar(10)!)
         value = value.replacingOccurrences(of: "(?is)<(script|style|iframe|form|object|embed)[^>]*>.*?</\\1>", with: " ", options: .regularExpression)
-        value = value.replacingOccurrences(of: "(?is)<br\\s*/?>", with: newline, options: .regularExpression)
+        value = value.replacingOccurrences(of: "(?is)<br\\s*/?>[ \\t]*\\r?\\n?", with: newline, options: .regularExpression)
         // Preserve an actual paragraph boundary for the translation pipeline.
         // A single newline made an entire article look like one translation unit
         // whenever publishers minified their HTML.
@@ -708,6 +708,12 @@ public extension String {
         value = value.replacingOccurrences(of: "[ \\t]*\\n[ \\t]*", with: newline, options: .regularExpression)
         value = value.replacingOccurrences(of: "\\n{3,}", with: newline + newline, options: .regularExpression)
         return value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// 规整译文中的换行：当原文没有连续空行（单换行或紧凑排版）时，折叠大模型多余生成的连续空行为单换行，保持与原文行距一致。
+    func aligningNewlines(withOriginal original: String) -> String {
+        guard !original.contains("\n\n") else { return self }
+        return replacingOccurrences(of: "\\n{2,}", with: "\n", options: .regularExpression)
     }
 
     var stableDigest: String {

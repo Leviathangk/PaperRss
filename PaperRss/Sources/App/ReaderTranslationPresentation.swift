@@ -145,7 +145,17 @@ enum ReaderTranslationPresentation {
         if (pressed === record) pressed = null;
         selected.delete(record);
       };
-      const reconcile = id => {
+      const measure = id => {
+        const source = document.querySelector('[data-paper-rss-id="' + CSS.escape(id) + '"]');
+        if (!source || records.has(id)) return null;
+        const computed = getComputedStyle(source);
+        const typography = {};
+        for (const property of ['font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-align']) {
+          typography[property] = computed.getPropertyValue(property);
+        }
+        return { marginTop: computed.marginTop, marginBottom: computed.marginBottom, typography };
+      };
+      const reconcile = (id, measured = null) => {
         let source = document.querySelector('[data-paper-rss-id="' + CSS.escape(id) + '"]');
         const aside = document.getElementById('paper-rss-translation-' + id);
         if (!source || !aside || aside.classList.contains('is-loading') ||
@@ -153,7 +163,7 @@ enum ReaderTranslationPresentation {
           unwrap(id); return;
         }
         if (records.has(id)) return;
-        const computed = getComputedStyle(source);
+        const computed = measured || measure(id);
         // 列表项、定义、图注及表格单元格保留外层标签，在其内部叠放，
         // 避免非法父子结构（把 td 移出 tr 会直接破坏表格）。
         const isTableCell = source.tagName === 'TD' || source.tagName === 'TH';
@@ -166,10 +176,6 @@ enum ReaderTranslationPresentation {
         host.setAttribute('aria-label', window.paperRssSelectionOptions?.labels?.showOriginal || '查看原文');
         host.style.marginTop = container ? '0px' : computed.marginTop;
         host.style.marginBottom = container ? '0px' : computed.marginBottom;
-        const typography = {};
-        for (const property of ['font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-align']) {
-          typography[property] = computed.getPropertyValue(property);
-        }
         if (container) {
           source = document.createElement('div');
           source.append(...container.childNodes);
@@ -177,7 +183,7 @@ enum ReaderTranslationPresentation {
         const record = {source, aside, host, container, cellAsideInside: isTableCell, original: null,
           sourceAria: source.getAttribute('aria-hidden'), asideAria: aside.getAttribute('aria-hidden'),
           sourceInert: source.inert, asideInert: aside.inert, asideStyle: aside.getAttribute('style')};
-        for (const [property, value] of Object.entries(typography)) aside.style.setProperty(property, value);
+        for (const [property, value] of Object.entries(computed.typography)) aside.style.setProperty(property, value);
         if (container) container.append(host); else source.before(host);
         host.append(source, aside);
         source.classList.add('paper-rss-source-layer');
@@ -185,6 +191,7 @@ enum ReaderTranslationPresentation {
         show(record, hasFocus(record));
       };
       window.paperRssTranslationPresentation = {
+        measure,
         reconcile,
         remove: unwrap,
         setLabel: label => {

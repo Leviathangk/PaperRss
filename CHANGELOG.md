@@ -1,5 +1,24 @@
 # 更新记录 / Changelog
 
+## v1.5.0-beta.3 · Build 44 · 2026-10-14
+
+本次 Beta 改进双语翻译排版、滚动更新与请求调度，并补齐设置页键盘导航；推荐 Beta 通道用户更新测试，稳定版仍为 v1.4.5。
+
+- **双语对照排版**：嵌套列表按项目逐一对照，父项译文放在子列表之前；引用块按段落对照，共享原有的边框与缩进。
+- **译文换行**：保留原文的单换行，减少译文中多余的空行，让原文与译文的间距更一致。
+- **滚动与段落更新**：滚动中及时显示已完成译文，合并布局更新并保持阅读位置，改善长文章和密集列表、表格后续段落的翻译。
+- **翻译请求调度**：正文、标题和划词翻译协调同模型请求，服务限流时自动等待后重试，额度不足时及时停止请求，并改进翻译专用模型的标题翻译兼容性。
+- **设置键盘操作**：再次按 ⌘, 返回主界面；上下方向键切换分类，右方向键或 Tab 进入控件，左方向键返回分类。输入框保留光标操作，关闭设置后恢复主界面焦点。
+
+---
+
+This Beta improves bilingual translation layout, scrolling updates and request scheduling, and adds keyboard navigation in Settings. Recommended for Beta channel users; the stable release remains v1.4.5.
+
+- **Bilingual layout**: Nested lists show translations beside individual items, with parent translations before child lists. Blockquotes align translations paragraph by paragraph while sharing the original borders and indentation.
+- **Translation line breaks**: Preserve single line breaks and reduce extra blank lines for spacing that better matches the original text.
+- **Scrolling and paragraph updates**: Show completed translations during scrolling, batch layout updates and preserve the reading position. Improve translation of long articles and paragraphs following dense lists or tables.
+- **Translation requests**: Coordinate article, title and selection requests for the same model, retry after temporary rate limits, stop when quota is exhausted, and improve title translation compatibility with translation-specific models.
+- **Settings keyboard controls**: Press ⌘, again to return to the main window. Use Up and Down for categories, Right or Tab to enter controls, and Left to return. Text fields retain cursor controls, and closing Settings restores the main window's keyboard focus.
 
 ## v1.5.0-beta.2 · Build 43 · 2026-10-13
 

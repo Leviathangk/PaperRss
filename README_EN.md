@@ -84,7 +84,7 @@ On first launch after upgrading, the former single AI configuration is bound to 
 
 **Stable v1.4.5 (Build 41)** is recommended for all users. List and article switching are smoother, occasional list scrolling crashes and image loading failures are fixed, and magazine page turns and the reading audio wave are improved. See the [changelog](CHANGELOG.md).
 
-**[Beta v1.5.0-beta.2 (Build 43)](https://github.com/ohmyangboy/PaperRss/releases/tag/v1.5.0-beta.2)** is available with full Markdown and table rendering for AI summaries, plus macOS iCloud account sync (Beta), feed renaming and native sharing improvements. See the [changelog](CHANGELOG.md).
+**[Beta v1.5.0-beta.3 (Build 44)](https://github.com/ohmyangboy/PaperRss/releases/tag/v1.5.0-beta.3)** is available with improved bilingual list and blockquote layouts, line breaks, scrolling updates and translation request scheduling, plus keyboard navigation in Settings. See the [changelog](CHANGELOG.md).
 
 Download the latest `.dmg` installer from [Releases](https://github.com/ohmyangboy/PaperRss/releases), open it, and drag PaperRss into your Applications folder. That's it.
 

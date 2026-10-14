@@ -79,10 +79,66 @@ final class ReaderBlockSemanticsTests: XCTestCase {
         <p>后续普通段落文本。</p>
         """
 
-        let output = ArticleExtractor.insertingInlineTranslations(into: source, segments: [])
+        let paragraphs = ArticleExtractor.readerParagraphs(in: source)
+        XCTAssertEqual(paragraphs.map(\.id), ["p0", "p1", "p2"], "嵌套段落的引用块应拆分为段落级翻译单元")
+        XCTAssertEqual(paragraphs.map(\.original), [
+            "第一段引用正文，阐述核心观点。",
+            "第二段引用正文，进一步补充说明。",
+            "后续普通段落文本。"
+        ])
+
+        let segments = [
+            BilingualSegment(id: "p0", original: paragraphs[0].original, translation: "第一段译文"),
+            BilingualSegment(id: "p1", original: paragraphs[1].original, translation: "第二段译文"),
+            BilingualSegment(id: "p2", original: paragraphs[2].original, translation: "正文译文")
+        ]
+        let output = ArticleExtractor.insertingInlineTranslations(into: source, segments: segments)
 
         XCTAssertTrue(output.contains("<blockquote"), "多段引用必须在插入注解后保留 blockquote 语义")
         XCTAssertTrue(output.contains("</blockquote>"))
+
+        guard let quoteClose = output.range(of: "</blockquote>"),
+              let transP0 = output.range(of: "paper-rss-translation-p0"),
+              let transP1 = output.range(of: "paper-rss-translation-p1"),
+              let origP1 = output.range(of: "第二段引用正文") else {
+            XCTFail("译文节点或原文未在输出中找到")
+            return
+        }
+
+        // 段落级插入：第一段译文位于第二段原文之前，且两段译文均位于 </blockquote> 闭合之前
+        XCTAssertTrue(transP0.upperBound < origP1.lowerBound, "第一段译文应插在第一段段落后、第二段段落前")
+        XCTAssertTrue(transP1.upperBound < quoteClose.lowerBound, "第二段译文必须保留在 blockquote 内部")
+    }
+
+    func testStandaloneBlockquoteInsertsTranslationInsideClosingTag() {
+        let source = "<blockquote>单一纯文本引用，无内部 p 标签。</blockquote>"
+        let paragraphs = ArticleExtractor.readerParagraphs(in: source)
+        XCTAssertEqual(paragraphs.map(\.id), ["p0"])
+
+        let segments = [
+            BilingualSegment(id: "p0", original: paragraphs[0].original, translation: "纯文本引用译文")
+        ]
+        let output = ArticleExtractor.insertingInlineTranslations(into: source, segments: segments)
+
+        guard let quoteClose = output.range(of: "</blockquote>"),
+              let transP0 = output.range(of: "paper-rss-translation-p0") else {
+            XCTFail("纯文本引用译文节点未正确生成")
+            return
+        }
+        XCTAssertTrue(transP0.upperBound < quoteClose.lowerBound, "无嵌套引用块的译文必须插在 </blockquote> 闭合标签之前")
+    }
+
+    func testNonStrictLineBreaksPreserveSingleNewlinesAndAlignTranslation() {
+        let htmlWithBr = "<p>Is this plugin open source? Yes<br>\nIs this plugin completely free? Yes<br>\nCommunity: Link</p>"
+        let plain = htmlWithBr.plainText
+        XCTAssertFalse(plain.contains("\n\n"), "<br> 后的换行符不应被膨胀为多余空行")
+        XCTAssertEqual(plain.components(separatedBy: "\n").count, 3)
+
+        // 模拟大模型将单换行文本返回了双换行（产生空行）的情况
+        let llmOutputWithExtraBlankLines = "此插件是开源的吗？是的\n\n此插件完全免费吗？是的\n\n社区：链接"
+        let aligned = llmOutputWithExtraBlankLines.aligningNewlines(withOriginal: plain)
+        XCTAssertFalse(aligned.contains("\n\n"), "对齐后的译文应消除多余空行，与原文行距保持一致")
+        XCTAssertEqual(aligned.components(separatedBy: "\n").count, 3)
     }
 
     func testInsertingTranslationsPreservesHeadingAndPreformattedSemantics() {
@@ -262,28 +318,44 @@ final class ReaderBlockSemanticsTests: XCTestCase {
         XCTAssertEqual(paragraphs.map(\.original), ["第一段正文。", "第二段正文。", "第三段正文。"])
     }
 
-    func testNestedListsRemainOneBalancedTranslationUnit() {
+    func testNestedListsDecomposeIntoItemLevelTranslationUnits() throws {
         let source = """
         <ul><li>外层第一项<ul><li>内层项目</li></ul></li><li>外层第二项</li></ul>
         <p>列表后的段落。</p>
         """
         let paragraphs = ArticleExtractor.readerParagraphs(in: source)
+        XCTAssertEqual(paragraphs.map(\.id), ["p0_0", "p0_1", "p0_2", "p1"])
+        XCTAssertEqual(paragraphs[0].original, "外层第一项")
+        XCTAssertEqual(paragraphs[1].original, "内层项目")
+        XCTAssertEqual(paragraphs[2].original, "外层第二项")
+        XCTAssertEqual(paragraphs[3].original, "列表后的段落。")
+
         let segments = [
-            BilingualSegment(id: "p0", original: paragraphs[0].original, translation: "列表译文")
+            BilingualSegment(id: "p0_0", original: "外层第一项", translation: "外层第一项译文"),
+            BilingualSegment(id: "p0_1", original: "内层项目", translation: "内层项目译文"),
+            BilingualSegment(id: "p0_2", original: "外层第二项", translation: "外层第二项译文"),
+            BilingualSegment(id: "p1", original: "列表后的段落。", translation: "列表后的段落译文")
         ]
 
         let output = ArticleExtractor.insertingInlineTranslations(into: source, segments: segments)
 
-        XCTAssertEqual(paragraphs.map(\.id), ["p0", "p1"])
         XCTAssertEqual(output.components(separatedBy: "<ul").count, source.components(separatedBy: "<ul").count)
         XCTAssertEqual(output.components(separatedBy: "</ul>").count, source.components(separatedBy: "</ul>").count)
-        let outerListEnd = try? XCTUnwrap(output.range(of: "</ul>", options: .backwards)?.upperBound)
-        let translationStart = try? XCTUnwrap(output.range(of: "paper-rss-translation-p0")?.lowerBound)
-        XCTAssertNotNil(outerListEnd)
-        XCTAssertNotNil(translationStart)
-        if let outerListEnd, let translationStart {
-            XCTAssertLessThanOrEqual(outerListEnd, translationStart)
-        }
+        XCTAssertEqual(output.components(separatedBy: "<li").count, source.components(separatedBy: "<li").count)
+        XCTAssertEqual(output.components(separatedBy: "</li>").count, source.components(separatedBy: "</li>").count)
+
+        // 父列表项译文必须落在子 <ul> 之前，而不是沉底到 </ul> 之后
+        let trans0Start = try XCTUnwrap(output.range(of: "paper-rss-translation-p0_0")?.lowerBound)
+        let innerLiStart = try XCTUnwrap(output.range(of: "data-paper-rss-id=\"p0_1\"")?.lowerBound)
+        XCTAssertLessThan(trans0Start, innerLiStart, "父项译文必须位于嵌套子列表项之前")
+
+        // 子列表项译文必须落在自身 </li> 闭合前
+        let trans1Start = try XCTUnwrap(output.range(of: "paper-rss-translation-p0_1")?.lowerBound)
+        let trans2Start = try XCTUnwrap(output.range(of: "paper-rss-translation-p0_2")?.lowerBound)
+        XCTAssertLessThan(trans1Start, trans2Start, "子项译文必须位于后续外层第二项译文之前")
+
+        let outerListEnd = try XCTUnwrap(output.range(of: "</ul>")?.lowerBound)
+        XCTAssertLessThan(trans2Start, output.endIndex, "外层第二项译文存在")
     }
 
     func testFlatListsDecomposeIntoItemLevelTranslationUnits() throws {
@@ -325,5 +397,29 @@ final class ReaderBlockSemanticsTests: XCTestCase {
         XCTAssertTrue(output.contains("Nested block"))
         XCTAssertTrue(output.contains("After"))
         XCTAssertTrue(output.contains("Following paragraph"))
+    }
+
+    func testDiagnosePaperBlogArticle() throws {
+        guard let html = try? String(contentsOfFile: "/tmp/paper_article.html") else { return }
+        let paras = ArticleExtractor.readerParagraphs(in: html, title: "Paper Blog: Write Simply, Blog Cleanly")
+        let originals = paras.map(\.original)
+
+        // 嵌套列表成功拆分：包含独立父项与各自子项
+        XCTAssertTrue(originals.contains("Dual Operating Modes:"), "父项必须拆分为独立单元")
+        XCTAssertTrue(originals.contains(where: { $0.contains("Global Mode") }), "嵌套子项必须拆分为独立单元")
+        XCTAssertTrue(originals.contains(where: { $0.contains("Local Project Mode") }), "嵌套子项必须拆分为独立单元")
+
+        // 底部段落完整提取
+        XCTAssertTrue(originals.contains(where: { $0.contains("Related Guide") }), "文章底部 Related Guide 必须被提取")
+        XCTAssertTrue(originals.contains(where: { $0.contains("Run `paper doctor`") || $0.contains("Run paper doctor") }), "文章底部 Tip 必须被提取")
+
+        // 验证插入译文时父项译文落在子列表前
+        let dualModePara = try XCTUnwrap(paras.first(where: { $0.original == "Dual Operating Modes:" }))
+        let testSegment = BilingualSegment(id: dualModePara.id, original: dualModePara.original, translation: "双运行模式：")
+        let output = ArticleExtractor.insertingInlineTranslations(into: html, segments: [testSegment])
+
+        let asideIndex = try XCTUnwrap(output.range(of: "id=\"paper-rss-translation-\(dualModePara.id)\"")?.lowerBound)
+        let sublistIndex = try XCTUnwrap(output.range(of: "Global Mode")?.lowerBound)
+        XCTAssertLessThan(asideIndex, sublistIndex, "Dual Operating Modes 译文必须位于 Global Mode 子列表前")
     }
 }

@@ -1188,3 +1188,19 @@ test('杂志阅读界面支持鼠标后退侧键（button 3），就像浏览器
 
   f.window.paperRssTOCRail.destroy();
 });
+
+test('translation layout refreshes defer whole-document navigation scans while scrolling', () => {
+  const fixture = makeFixture();
+  const rail = runRail(fixture);
+  let scans = 0;
+  const query = fixture.document.querySelectorAll.bind(fixture.document);
+  fixture.document.querySelectorAll = (...args) => { scans++; return query(...args); };
+  fixture.window.paperRssReaderScrolling = true;
+  for (let i = 0; i < 20; i++) fixture.window.paperRssTOCRail.refresh();
+  fixture.window.advanceTime(120);
+  assert.equal(scans, 0, 'continuous scrolling must not rescan article headings or fallback paragraphs');
+  fixture.window.paperRssReaderScrolling = false;
+  fixture.window.advanceTime(120);
+  assert.ok(scans > 0, 'navigation structure refreshes after the gesture');
+  assert.equal(fixture.document.querySelector('#paper-rss-toc-rail'), rail);
+});

@@ -246,6 +246,11 @@ struct SettingsView: View {
     @State private var isShowingCleanConfirmation = false
     @State private var storageStats: LibraryDatabase.StorageStats?
     @State private var hoveredSection: SettingsSection?
+    #if os(macOS)
+    private enum KeyboardArea: Hashable { case sidebar, content }
+    @FocusState private var keyboardArea: KeyboardArea?
+    @FocusState private var firstContentSection: SettingsSection?
+    #endif
 
     var body: some View {
         Group {
@@ -323,6 +328,10 @@ struct SettingsView: View {
         HStack(spacing: 0) {
             sidebarView
                 .frame(width: SettingsMetrics.sidebarWidth)
+                .focusable(isActive)
+                .focusEffectDisabled()
+                .focused($keyboardArea, equals: .sidebar)
+                .focusSection()
 
             VStack(spacing: 0) {
                 if selectedSection == .aiService && selectedAISettingsPane == .providers {
@@ -351,13 +360,48 @@ struct SettingsView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .focusSection()
         }
         .background(settingsWindowBackground)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .font(.system(size: 15))
         .controlSize(.regular)
         .buttonBorderShape(.roundedRectangle(radius: 8))
+        .background(SettingsKeyboardNavigation(
+            isActive: isActive,
+            onActivate: { keyboardArea = .sidebar },
+            onKey: handleSettingsKey
+        ))
         .onAppear(perform: loadConfiguration)
+    }
+
+    private func handleSettingsKey(_ event: NSEvent, _ window: NSWindow) -> Bool {
+        switch event.keyCode {
+        case 125, 126:
+            if keyboardArea == .sidebar {
+                let sections = SettingsSection.allCases
+                guard let current = sections.firstIndex(of: selectedSection) else { return false }
+                let next = min(max(current + (event.keyCode == 125 ? 1 : -1), 0), sections.count - 1)
+                selectSection(sections[next])
+            } else if event.keyCode == 125 {
+                SettingsKeyboardNavigation.moveFocus(in: window, backwards: false, from: event)
+            } else {
+                SettingsKeyboardNavigation.moveFocus(in: window, backwards: true, from: event)
+            }
+            return true
+        case 124, 48:
+            guard keyboardArea == .sidebar else { return false }
+            firstContentSection = selectedSection
+            return true
+        case 123:
+            // Controls that edit a value keep their own horizontal arrow keys.
+            guard !(window.firstResponder is NSSlider),
+                  !(window.firstResponder is NSPopUpButton) else { return false }
+            keyboardArea = .sidebar
+            return true
+        default:
+            return false
+        }
     }
     #else
     private var iOSBody: some View {
@@ -445,10 +489,10 @@ struct SettingsView: View {
     private func sidebarItem(for section: SettingsSection) -> some View {
         let isSelected = selectedSection == section
         return Button {
-            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.15)) {
-                selectedSection = section
-                status = ""
-            }
+            selectSection(section)
+            #if os(macOS)
+            keyboardArea = .sidebar
+            #endif
         } label: {
             HStack(spacing: 10) {
                 Capsule()
@@ -488,7 +532,15 @@ struct SettingsView: View {
             hoveredSection = isHovered ? section : nil
         }
         .accessibilityLabel(section.title)
+        .accessibilityIdentifier("settings.section.\(section.rawValue)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func selectSection(_ section: SettingsSection) {
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.15)) {
+            selectedSection = section
+            status = ""
+        }
     }
 
     private var sidebarFooter: some View {
@@ -577,6 +629,10 @@ struct SettingsView: View {
                     )
                     .toggleStyle(.switch)
                     .labelsHidden()
+                    #if os(macOS)
+                    .focusable()
+                    .focused($firstContentSection, equals: .accounts)
+                    #endif
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
@@ -853,6 +909,10 @@ struct SettingsView: View {
                         Label(I18N.shared.localized("赞助列表", "Supporters"), systemImage: "arrow.up.right")
                     }
                     .buttonStyle(.bordered)
+                    #if os(macOS)
+                    .focusable()
+                    .focused($firstContentSection, equals: .about)
+                    #endif
                 }
 
                 Divider().padding(.horizontal, 18).opacity(0.18)
@@ -1052,6 +1112,10 @@ struct SettingsView: View {
                     selectedFamily: store.readerAppearance.cjkFontFamilyName,
                     families: families
                 ) { store.setReaderCJKFontFamily($0) }
+                #if os(macOS)
+                .focusable()
+                .focused($firstContentSection, equals: .appearance)
+                #endif
             }
             .help(I18N.shared.localized("所选西文字体缺少中文字形时，中文自动使用这里的字体。", "CJK glyphs fall back to this font when the Latin font has no Chinese coverage."))
             VStack(alignment: .leading, spacing: 8) {
@@ -1279,6 +1343,10 @@ struct SettingsView: View {
                     .labelsHidden()
                     .pickerStyle(.menu)
                     .frame(width: 180, alignment: .trailing)
+                    #if os(macOS)
+                    .focusable()
+                    .focused($firstContentSection, equals: .general)
+                    #endif
                 }
             }
         }
@@ -1295,6 +1363,10 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .fixedSize()
+                #if os(macOS)
+                .focusable()
+                .focused($firstContentSection, equals: .aiService)
+                #endif
                 Spacer(minLength: 0)
             }
 
@@ -3110,6 +3182,9 @@ struct SettingsView: View {
             Spacer(minLength: 12)
             control()
                 .controlSize(.regular)
+                #if os(macOS)
+                .focusable()
+                #endif
         }
         .padding(.horizontal, SettingsMetrics.rowHorizontalPadding)
         .padding(.vertical, SettingsMetrics.rowVerticalPadding)

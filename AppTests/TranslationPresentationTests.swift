@@ -15,6 +15,8 @@ final class TranslationPresentationTests: XCTestCase, WKNavigationDelegate {
         webView.navigationDelegate = self
         let html = """
         <!doctype html><html><head><meta charset="utf-8">
+        <meta name="paper-rss-load-generation" content="7">
+        <meta name="paper-rss-document-identity" content="test-article">
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'none'">
         <style>:root { --paper-ink: #302D27; --paper-muted: #6F695E; }
         body { font: 17px/1.72 sans-serif; } p { margin: 1em 0; }
@@ -27,6 +29,13 @@ final class TranslationPresentationTests: XCTestCase, WKNavigationDelegate {
             webView.loadHTMLString(html, baseURL: nil)
         }
         _ = try await run(ReaderTranslationPresentation.bootstrapScript)
+        _ = try await run("""
+        window.translationFlushes = 0;
+        window.addEventListener('paperRssLayoutRefresh', () => window.translationFlushes++);
+        window.paperRssVisibleTranslationNodes = Array.from(document.querySelectorAll('[data-paper-rss-id]')).filter(node => {
+          const rect = node.getBoundingClientRect(); return rect.bottom > 0 && rect.top < window.innerHeight;
+        }).slice(0, 10);
+        """)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -44,9 +53,21 @@ final class TranslationPresentationTests: XCTestCase, WKNavigationDelegate {
     }
 
     private func update(_ id: String = "p0", text: String = "译文", loading: Bool = false) async throws {
+        try await synchronize(updates: [["id": id, "text": text, "isLoading": loading]])
+    }
+
+    private func synchronize(updates: [[String: Any]] = [], removals: [String] = []) async throws {
+        let previous = try await run("return window.translationFlushes;") as? Int ?? 0
         _ = try await run(PaperReaderBridge.translationSynchronizationScript, arguments: [
-            "updates": [["id": id, "text": text, "isLoading": loading]], "removals": [String]()
+            "updates": updates, "removals": removals, "generation": 7, "documentIdentity": "test-article"
         ])
+        _ = try await run("""
+        const deadline = Date.now() + 3000;
+        while (window.translationFlushes <= previous) {
+          if (Date.now() > deadline) throw new Error('Translation frame did not flush');
+          await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        """, arguments: ["previous": previous])
     }
 
     func testIncrementalTranslationHasStyleAndReplacementPreservesDOMAndHeight() async throws {
@@ -82,7 +103,7 @@ final class TranslationPresentationTests: XCTestCase, WKNavigationDelegate {
         let pending = try await run("return !document.querySelector('.paper-rss-replacement') && getComputedStyle(document.querySelector('.paper-rss-translation')).display === 'none';")
         XCTAssertEqual(pending as? Bool, true)
         try await update()
-        _ = try await run(PaperReaderBridge.translationSynchronizationScript, arguments: ["updates": [[String: Any]](), "removals": ["p0"]])
+        try await synchronize(removals: ["p0"])
         let removed = try await run("return !document.querySelector('.paper-rss-replacement') && !document.querySelector('.paper-rss-translation') && document.querySelector('[data-paper-rss-id]').textContent === 'Original';")
         XCTAssertEqual(removed as? Bool, true)
     }
@@ -139,7 +160,7 @@ final class TranslationPresentationTests: XCTestCase, WKNavigationDelegate {
         try await load(html)
         _ = try await run("window.paperRssTranslationPresentation.setPreferences('replacement', '#494640');")
         let updates = (0..<150).map { ["id": "p\($0)", "text": "译文", "isLoading": false] as [String: Any] }
-        _ = try await run(PaperReaderBridge.translationSynchronizationScript, arguments: ["updates": updates, "removals": [String]()])
+        try await synchronize(updates: updates)
         let count = try await run("return document.querySelectorAll('.paper-rss-replacement').length;") as? Int
         XCTAssertEqual(count, 150)
         let result = try await run("""
@@ -228,4 +249,52 @@ final class TranslationPresentationTests: XCTestCase, WKNavigationDelegate {
         XCTAssertEqual(result, true)
     }
 
+    func testIncrementalUpdateOfLongArticleOnlyMeasuresViewportAnchor() async throws {
+        let html = (0..<1_000).map { "<p data-paper-rss-id='p\($0)'>Original paragraph \($0)</p>" }.joined()
+        try await load(html)
+        _ = try await run("""
+        window.paperRssVisibleTranslationNodes = [document.querySelector('[data-paper-rss-id="p0"]')];
+        window.translationBoundsReads = 0;
+        const originalBounds = Element.prototype.getBoundingClientRect;
+        Element.prototype.getBoundingClientRect = function() {
+          window.translationBoundsReads++; return originalBounds.call(this);
+        };
+        """)
+        try await update("p1", text: "增量译文")
+        let reads = try await run("return window.translationBoundsReads;") as? Int
+        XCTAssertLessThanOrEqual(try XCTUnwrap(reads), 3, "不应对一千段正文逐一测量布局")
+        let translation = try await run("return document.querySelector('#paper-rss-translation-p1 .paper-rss-translation-text').textContent;") as? String
+        XCTAssertEqual(translation, "增量译文")
+    }
+
+    func testInsertionAboveViewportPreservesReadingPositionDuringScroll() async throws {
+        let paragraphs = (0..<50).map { "<p data-paper-rss-id='p\($0)'>Paragraph \($0). " + String(repeating: "Original text. ", count: 10) + "</p>" }.joined()
+        try await load(paragraphs)
+        _ = try await run("""
+        const anchor = document.querySelector('[data-paper-rss-id="p8"]');
+        window.scrollTo(0, anchor.getBoundingClientRect().top + window.scrollY - 40);
+        window.paperRssReaderScrolling = true;
+        window.paperRssVisibleTranslationNodes = [anchor];
+        window.anchorBeforeTranslation = anchor.getBoundingClientRect().top;
+        """)
+        try await update("p1", text: String(repeating: "较长的译文会增加上方段落高度。", count: 40))
+        let delta = try await run("return document.querySelector('[data-paper-rss-id=\"p8\"]').getBoundingClientRect().top - window.anchorBeforeTranslation;") as? Double
+        XCTAssertEqual(try XCTUnwrap(delta), 0, accuracy: 1,
+                       "译文插入引起的高度变化不能带着当前阅读位置跳动")
+    }
+
+    func testScrollingDisplaysTranslationWithoutWaitingAndModeChangeRemovesIt() async throws {
+        try await load("<p data-paper-rss-id='p0'>Original</p>")
+        _ = try await run("window.paperRssReaderScrolling = true;")
+        _ = try await run(PaperReaderBridge.translationSynchronizationScript, arguments: [
+            "updates": [["id": "p0", "text": "即时译文", "isLoading": false]], "removals": [String](),
+            "generation": 7, "documentIdentity": "test-article"
+        ])
+        let displayed = try await run("await new Promise(resolve => setTimeout(resolve, 180)); return document.querySelector('.paper-rss-translation-text')?.textContent;") as? String
+        XCTAssertEqual(displayed, "即时译文")
+        _ = try await run("window.paperRssReaderScrolling = false;")
+        try await synchronize(removals: ["p0"])
+        let withdrawn = try await run("return !document.querySelector('.paper-rss-translation') && document.querySelector('[data-paper-rss-id]').textContent === 'Original';") as? Bool
+        XCTAssertEqual(withdrawn, true)
+    }
 }

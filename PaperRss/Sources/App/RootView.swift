@@ -402,16 +402,18 @@ struct RootView: View {
         ZStack {
             mainContent
                 .opacity(showsSettings ? 0 : 1)
+                .disabled(showsSettings)
                 .allowsHitTesting(!showsSettings)
                 .accessibilityHidden(showsSettings)
             SettingsView(store: store, attention: attention, updateCoordinator: updateCoordinator,
                          editor: settingsEditor, isActive: showsSettings, onReturn: { showsSettings = false })
                 .opacity(showsSettings ? 1 : 0)
+                .disabled(!showsSettings)
                 .allowsHitTesting(showsSettings)
                 .accessibilityHidden(!showsSettings)
         }
-        .focusedSceneValue(\.openPaperSettings, { showsSettings = true })
-        .background(SettingsWindowRoute(open: { showsSettings = true }))
+        .focusedSceneValue(\.openPaperSettings, { showsSettings.toggle() })
+        .background(SettingsWindowRoute(open: { showsSettings.toggle() }))
         .focusedSceneValue(\.paperReaderActive, !showsSettings)
         .onAppear {
             isTimelineBrowsing = timelineStyle != .list

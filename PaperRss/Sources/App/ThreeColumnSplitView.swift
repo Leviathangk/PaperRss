@@ -381,6 +381,7 @@ final class ThreeColumnSplitViewCoordinator: NSObject, NSToolbarDelegate {
         weak var splitViewController: NSSplitViewController?
         var isReaderActive = true
         private var retainedReaderToolbar: NSToolbar?
+        private weak var retainedReaderResponder: NSResponder?
         private let settingsToolbar = NSToolbar(identifier: "PaperRssSettingsToolbar")
 
         func setReaderActive(_ active: Bool) {
@@ -395,11 +396,18 @@ final class ThreeColumnSplitViewCoordinator: NSObject, NSToolbarDelegate {
                 guard let retainedReaderToolbar else { return }
                 window.toolbar = retainedReaderToolbar
                 self.retainedReaderToolbar = nil
-                window.makeFirstResponder(splitViewController?.view)
+                splitViewController?.view.isHidden = false
+                if let retainedReaderResponder, window.makeFirstResponder(retainedReaderResponder) {
+                    self.retainedReaderResponder = nil
+                } else {
+                    setActiveColumn(activeColumnIndex, autoSelect: false)
+                }
             } else {
                 guard window.toolbar !== settingsToolbar else { return }
                 retainedReaderToolbar = window.toolbar
+                retainedReaderResponder = window.firstResponder
                 window.makeFirstResponder(nil)
+                splitViewController?.view.isHidden = true
                 settingsToolbar.isVisible = false
                 window.toolbar = settingsToolbar
             }

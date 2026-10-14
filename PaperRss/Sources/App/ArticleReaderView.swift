@@ -133,6 +133,8 @@ struct ArticleReaderView: View {
     @State private var summaryCopyFeedbackTask: Task<Void, Never>?
     @State private var visibleBilingualParagraphIDs: [String] = []
     @State private var pendingBilingualParagraphIDs: Set<String> = []
+    @State private var persistedBilingualSegments: [BilingualSegment] = []
+    @State private var bilingualSnapshotIdentity = ""
     /// Paragraph IDs that failed translation, with the number of failed
     /// attempts. Bounded so a permanently failing paragraph (model refusal,
     /// overlong text, provider outage) stops being re-requested after a few
@@ -249,7 +251,8 @@ struct ArticleReaderView: View {
     private var bilingualSegments: [BilingualSegment] {
         guard readerMode == .bilingual else { return [] }
         let originals = Dictionary(uniqueKeysWithValues: readerParagraphs.map { ($0.id, $0.original) })
-        let persisted = (store.bilingualArtifact(for: entry, text: text)?.segments ?? []).filter { segment in
+        let snapshotIdentity = "\(entry.id)|\(text.stableDigest)|\(store.bilingualTargetLanguage)"
+        let persisted = (bilingualSnapshotIdentity == snapshotIdentity ? persistedBilingualSegments : []).filter { segment in
             guard let original = originals[segment.id] else { return false }
             return original.isSameReaderParagraph(as: segment.original)
         }
@@ -333,6 +336,13 @@ struct ArticleReaderView: View {
             let target = store.bilingualTargetLanguage
             let changed = !aiWorkspace.isTranslationContextCurrent(entryID: entry.id, text: article.text, targetLanguage: target)
             aiWorkspace.setTranslationContext(entryID: entry.id, text: article.text, targetLanguage: target)
+            let snapshotIdentity = "\(entry.id)|\(article.text.stableDigest)|\(target)"
+            if bilingualSnapshotIdentity != snapshotIdentity {
+                // Restore once per document/language, rather than querying SQLite
+                // whenever a visible paragraph or completed translation changes.
+                persistedBilingualSegments = store.bilingualArtifact(for: requestedEntry, text: article.text)?.segments ?? []
+                bilingualSnapshotIdentity = snapshotIdentity
+            }
             if changed {
                 pendingBilingualParagraphIDs.removeAll()
                 failedBilingualParagraphIDs.removeAll()
@@ -1217,6 +1227,9 @@ struct ArticleReaderView: View {
         let requestedTarget = store.bilingualTargetLanguage
         do {
             try aiWorkspace.submit(.bilingual(paragraphIDs: batch), in: generation) { emit in
+                defer {
+                    pendingBilingualParagraphIDs.subtract(batch)
+                }
                 await store.translateBilingualParagraphs(
                     entry: requestedEntry,
                     text: requestedText,
@@ -1231,27 +1244,28 @@ struct ArticleReaderView: View {
                     }
                 )
 
-            guard !Task.isCancelled, aiWorkspace.isCurrent(generation) else { return }
-            let originals = Dictionary(uniqueKeysWithValues: paragraphs.map { ($0.id, $0.original) })
-            let completedIDs = Set(
-                (store.bilingualArtifact(for: requestedEntry, text: requestedText)?.segments ?? []).filter { segment in
-                    guard let original = originals[segment.id] else { return false }
-                    return original.isSameReaderParagraph(as: segment.original)
-                }.map(\.id)
-            )
-            let unsuccessfulIDs = Set(batch).subtracting(completedIDs)
-            pendingBilingualParagraphIDs.subtract(batch)
-            for id in batch where completedIDs.contains(id) {
-                failedBilingualParagraphIDs.removeValue(forKey: id)
-            }
-            for id in unsuccessfulIDs {
-                failedBilingualParagraphIDs[id, default: 0] += 1
-            }
-            Task { @MainActor in
-                await Task.yield()
-                guard aiWorkspace.isCurrent(generation) else { return }
-                requestVisibleTranslationsIfPossible()
-            }
+                guard !Task.isCancelled, aiWorkspace.isCurrent(generation) else { return }
+                let originals = Dictionary(uniqueKeysWithValues: paragraphs.map { ($0.id, $0.original) })
+                let updatedArtifact = store.bilingualArtifact(for: requestedEntry, text: requestedText)
+                let completedIDs = Set(
+                    (updatedArtifact?.segments ?? []).filter { segment in
+                        guard let original = originals[segment.id] else { return false }
+                        return original.isSameReaderParagraph(as: segment.original)
+                    }.map(\.id)
+                )
+                let unsuccessfulIDs = Set(batch).subtracting(completedIDs)
+                persistedBilingualSegments = updatedArtifact?.segments ?? []
+                for id in batch where completedIDs.contains(id) {
+                    failedBilingualParagraphIDs.removeValue(forKey: id)
+                }
+                for id in unsuccessfulIDs {
+                    failedBilingualParagraphIDs[id, default: 0] += 1
+                }
+                Task { @MainActor in
+                    await Task.yield()
+                    guard aiWorkspace.isCurrent(generation) else { return }
+                    requestVisibleTranslationsIfPossible()
+                }
             }
         } catch {
             pendingBilingualParagraphIDs.subtract(batch)
@@ -2197,6 +2211,14 @@ blockquote + .paper-rss-translation {
   padding: .08em 0 .08em 1em;
   margin: -.5em 0 1.25em;
 }
+/* 引用块内部译文：与内部段落对照，共享引用块外层边框与缩进，不重复添加边线 */
+blockquote .paper-rss-translation {
+  display: block;
+  margin: .35em 0 .85em;
+  border-left: none;
+  padding: 0;
+  font-family: inherit;
+}
 .paper-rss-translation-label {
   position: relative;
   display: inline-flex;
@@ -2438,13 +2460,10 @@ enum PaperReaderBridge {
     static let askSelectionMessageName = "paperRssAskSelection"
 
     static let translationSynchronizationScript = ReaderTranslationPresentation.bootstrapScript + """
-    const visibleNodes = Array.from(document.querySelectorAll("[data-paper-rss-id]"))
-      .filter(node => {
-        const rect = node.getBoundingClientRect();
-        return rect.bottom > 0 && rect.top < window.innerHeight;
-      });
-    const anchor = visibleNodes[0] || null;
-    const anchorTop = anchor ? anchor.getBoundingClientRect().top : null;
+    if (!window.paperRssQueueTranslations) {
+    const pending = new Map();
+    let frame = null;
+    let timer = null;
 
     const translationNodeID = id => "paper-rss-translation-" + id;
     const makeTranslation = update => {
@@ -2481,9 +2500,18 @@ enum PaperReaderBridge {
       if (!aside) {
         aside = makeTranslation(update);
         // 表格单元格的译文必须放进本格内部；afterend 会把译文插成 tr 的
-        // 非法子元素，破坏结构。
-        const placement = (source.tagName === "TD" || source.tagName === "TH" || source.tagName === "LI") ? "beforeend" : "afterend";
-        source.insertAdjacentElement(placement, aside);
+        // 非法子元素，破坏结构。列表项若含直接子列表则插在子列表前，否则与无嵌套引用块同样置于闭合前。
+        if (source.tagName === "LI") {
+          const sublist = source.querySelector(":scope > ul, :scope > ol");
+          if (sublist) {
+            sublist.insertAdjacentElement("beforebegin", aside);
+          } else {
+            source.insertAdjacentElement("beforeend", aside);
+          }
+        } else {
+          const placement = (source.tagName === "TD" || source.tagName === "TH" || source.tagName === "BLOCKQUOTE") ? "beforeend" : "afterend";
+          source.insertAdjacentElement(placement, aside);
+        }
       }
       aside.classList.toggle("is-loading", Boolean(update.isLoading));
       aside.setAttribute("aria-label", update.isLoading
@@ -2495,19 +2523,63 @@ enum PaperReaderBridge {
       if (paragraph) paragraph.textContent = update.text || "";
     };
 
-    removals.forEach(id => {
-      window.paperRssTranslationPresentation.remove(id);
-      document.getElementById(translationNodeID(id))?.remove();
-    });
-    updates.forEach(update => {
-      applyUpdate(update);
-      window.paperRssTranslationPresentation.reconcile(update.id);
-    });
-    window.dispatchEvent(new Event('paperRssLayoutRefresh'));
-
-    if (anchor && anchorTop !== null) {
-      const delta = anchor.getBoundingClientRect().top - anchorTop;
-      if (Math.abs(delta) > 0.5) window.scrollBy(0, delta);
+    const schedule = () => {
+      if (frame !== null || timer !== null) return;
+      frame = requestAnimationFrame(flush);
+      // WebKit suspends animation frames in detached/collapsed reader views.
+      // Keep queued removals and results deliverable without showing a window.
+      timer = setTimeout(flush, 100);
+    };
+    const flush = () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+      if (timer !== null) clearTimeout(timer);
+      frame = null;
+      timer = null;
+      if (!pending.size) return;
+      const changes = Array.from(pending.entries());
+      pending.clear();
+      if (!changes.length) return;
+      const visibleNodes = window.paperRssVisibleTranslationNodes || [];
+      // Measure immediately before and after this synchronous mutation batch.
+      // Compensate only its height delta, including during a user scroll.
+      const anchor = visibleNodes.find(node => {
+        const rect = node.getBoundingClientRect();
+        return rect.bottom > 0 && rect.top < window.innerHeight;
+      });
+      const anchorTop = anchor ? anchor.getBoundingClientRect().top : null;
+      // Read typography before any DOM writes, so replacement mode does not
+      // force a new style/layout pass for each paragraph in the batch.
+      const measurements = new Map();
+      if (document.documentElement.dataset.paperTranslationMode === 'replacement') {
+        for (const [id, update] of changes) {
+          if (update && !update.isLoading) measurements.set(id, window.paperRssTranslationPresentation.measure(id));
+        }
+      }
+      for (const [id, update] of changes) {
+        if (update) applyUpdate(update);
+        else {
+          window.paperRssTranslationPresentation.remove(id);
+          document.getElementById(translationNodeID(id))?.remove();
+        }
+      }
+      for (const [id, update] of changes) {
+        if (update) window.paperRssTranslationPresentation.reconcile(id, measurements.get(id));
+      }
+      if (anchor && anchorTop !== null) {
+        const delta = anchor.getBoundingClientRect().top - anchorTop;
+        if (Math.abs(delta) > 0.5) window.scrollBy({ top: delta, left: 0, behavior: 'instant' });
+      }
+      window.dispatchEvent(new Event('paperRssLayoutRefresh'));
+    };
+    window.paperRssQueueTranslations = (updates, removals) => {
+      removals.forEach(id => pending.set(id, null));
+      updates.forEach(update => { if (update?.id) pending.set(update.id, update); });
+      schedule();
+    };
+    }
+    if (String(generation) === document.querySelector('meta[name="paper-rss-load-generation"]')?.content &&
+        documentIdentity === document.querySelector('meta[name="paper-rss-document-identity"]')?.content) {
+      window.paperRssQueueTranslations(updates, removals);
     }
     """
 
@@ -2546,6 +2618,9 @@ enum PaperReaderBridge {
           let observedParagraphs = new Map();
           let allParagraphs = Array.from(document.querySelectorAll("[data-paper-rss-id]"));
           let scheduled = { scroll: false, paragraphs: false };
+          let scrollIdleTimer = null;
+          window.paperRssReaderScrolling = false;
+          window.paperRssVisibleTranslationNodes = [];
 
           const publishScroll = () => {
             scheduled.scroll = false;
@@ -2580,8 +2655,9 @@ enum PaperReaderBridge {
                 const rhsVisible = rhs.rect.top < viewportHeight && rhs.rect.bottom > 0 ? 0 : 1;
                 return lhsVisible - rhsVisible || lhs.rect.top - rhs.rect.top;
               })
-              .slice(0, 10)
+              .slice(0, 40)
               .map(item => item.id);
+            window.paperRssVisibleTranslationNodes = paragraphIDs.map(id => observedParagraphs.get(id));
             const payload = JSON.stringify(paragraphIDs);
             if (payload !== lastParagraphPayload) {
               lastParagraphPayload = payload;
@@ -2608,7 +2684,12 @@ enum PaperReaderBridge {
           // 原生就绪后重取首屏快照，不依赖 IntersectionObserver 的首次回调时机。
           window.paperRssRequestVisibleParagraphs = generation => {
             if (String(generation) !== document.querySelector('meta[name="paper-rss-load-generation"]')?.content) return;
-            observedParagraphs = new Map(allParagraphs.map(node => [node.dataset.paperRssId, node]));
+            // Seed only the preload window. Keeping every article node here
+            // caused subsequent layout notifications to remeasure the full text.
+            observedParagraphs = new Map(allParagraphs.filter(node => {
+              const rect = node.getBoundingClientRect();
+              return rect.bottom > -window.innerHeight * 0.30 && rect.top < window.innerHeight * 1.30;
+            }).map(node => [node.dataset.paperRssId, node]));
             lastParagraphPayload = "";
             scheduleParagraphs();
           };
@@ -2637,7 +2718,16 @@ enum PaperReaderBridge {
           });
           allParagraphs.forEach(node => observer.observe(node));
 
-          document.addEventListener("scroll", scheduleScroll, { passive: true, capture: true });
+          document.addEventListener("scroll", () => {
+            window.paperRssReaderScrolling = true;
+            clearTimeout(scrollIdleTimer);
+            scrollIdleTimer = setTimeout(() => {
+              window.paperRssReaderScrolling = false;
+              scheduleParagraphs();
+            }, 120);
+            scheduleParagraphs();
+            scheduleScroll();
+          }, { passive: true, capture: true });
           window.addEventListener("resize", () => {
             scheduleScroll();
             scheduleParagraphs();
@@ -3692,11 +3782,22 @@ enum PaperReaderBridge {
             }
           };
 
+          let deferredRailRefresh = null;
           const refresh = () => {
-            if (state.scheduled) return;
+            if (state.scheduled || deferredRailRefresh !== null) return;
             state.scheduled = true;
             window.requestAnimationFrame(() => {
               state.scheduled = false;
+              // Translation results still paint immediately. Only rediscovering
+              // navigation anchors (which scans the whole body) waits for idle.
+              // Existing anchors remain live: updateActive/navigateTo read them.
+              if (window.paperRssReaderScrolling) {
+                deferredRailRefresh = window.setTimeout(() => {
+                  deferredRailRefresh = null;
+                  refresh();
+                }, 120);
+                return;
+              }
               buildRail();
             });
           };
@@ -3991,6 +4092,7 @@ enum PaperReaderBridge {
           state.finishSwipe = finishSwipe;
           state.resetSwipe = (cancelled) => resetSwipe(cancelled);
           state.destroy = () => {
+            if (deferredRailRefresh !== null) window.clearTimeout(deferredRailRefresh);
             resetSwipe(true);
             returnButton?.remove();
             if (returnTimer !== null) window.clearTimeout(returnTimer);
@@ -6698,10 +6800,12 @@ private struct ArticleHTMLView: NSViewRepresentable {
             guard !updates.isEmpty || !removals.isEmpty else { return }
             renderedTranslations = desired.translations
             renderedPendingTranslationIDs = desired.pendingIDs
+            let generation = currentLoadGeneration
+            let identity = loadedDocumentIdentity ?? parent.entry.id
             Task { @MainActor in
                 _ = try? await webView.callAsyncJavaScript(
                     PaperReaderBridge.translationSynchronizationScript,
-                    arguments: ["updates": updates, "removals": removals],
+                    arguments: ["updates": updates, "removals": removals, "generation": generation, "documentIdentity": identity],
                     in: nil,
                     contentWorld: .defaultClient
                 )
@@ -7633,10 +7737,12 @@ private struct ArticleHTMLView: UIViewRepresentable {
             guard !updates.isEmpty || !removals.isEmpty else { return }
             renderedTranslations = desired.translations
             renderedPendingTranslationIDs = desired.pendingIDs
+            let generation = currentLoadGeneration
+            let identity = loadedDocumentIdentity ?? parent.entry.id
             Task { @MainActor in
                 _ = try? await webView.callAsyncJavaScript(
                     PaperReaderBridge.translationSynchronizationScript,
-                    arguments: ["updates": updates, "removals": removals],
+                    arguments: ["updates": updates, "removals": removals, "generation": generation, "documentIdentity": identity],
                     in: nil,
                     contentWorld: .defaultClient
                 )

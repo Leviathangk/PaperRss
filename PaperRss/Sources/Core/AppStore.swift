@@ -3317,10 +3317,11 @@ public final class AppStore: ObservableObject {
                 configuration: configuration,
                 executionContext: execution
             ) {
-                let seg = BilingualSegment(id: paragraph.id, original: paragraph.original, translation: tmTranslation)
+                let alignedTM = tmTranslation.aligningNewlines(withOriginal: paragraph.original)
+                let seg = BilingualSegment(id: paragraph.id, original: paragraph.original, translation: alignedTM)
                 newResolvedSegments.append(seg)
                 if let onDelta {
-                    await onDelta(paragraph.id, tmTranslation)
+                    await onDelta(paragraph.id, alignedTM)
                 }
                 guard isRequestCurrent(), !Task.isCancelled else { return }
             } else {
@@ -3401,11 +3402,12 @@ public final class AppStore: ObservableObject {
                     }
 
                     let batchSegments = zip(batch, translatedTexts).flatMap { paragraph, translation in
-                        (paragraphsBySource[paragraph.original] ?? [paragraph]).map {
+                        let aligned = translation.aligningNewlines(withOriginal: paragraph.original)
+                        return (paragraphsBySource[paragraph.original] ?? [paragraph]).map {
                             BilingualSegment(
                                 id: $0.id,
                                 original: $0.original,
-                                translation: translation,
+                                translation: aligned,
                                 providerID: execution.providerID,
                                 modelID: batchConfiguration.model,
                                 configurationFingerprint: fingerprint
@@ -3512,7 +3514,9 @@ public final class AppStore: ObservableObject {
 
         // 2. 未命中文本分批发（最多两批并行），字符与数量上限复用正文翻译口径。
         let fingerprint = execution.fingerprint(for: .translation, promptVersion: Self.translationPromptVersion)
-        let batches = titleTranslationBatches(from: unresolved.sorted())
+        let batches = configuration.usesTranslationAdaptation
+            ? unresolved.sorted().map { [$0] }
+            : titleTranslationBatches(from: unresolved.sorted())
         let service = llm
         let batchConfiguration = configuration
         await withTaskGroup(of: (translations: [String: String], failed: Set<String>).self) { group in

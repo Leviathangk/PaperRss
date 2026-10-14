@@ -38,3 +38,49 @@
   - `Tests/ReaderBlockSemanticsTests.swift` 新增 `testFlatListsDecomposeIntoItemLevelTranslationUnits`，断言扁平列表项级拆分与 `<li>` 内译文结构。
   - 更新 `testInsertingTranslationsTranslatesTablePerCellInsideTheTable` 对列表条目分段与内嵌断言，全套 19 项语义测试全部 PASS。
   - 执行 `./scripts/verify.sh --web`，212 项 Web / Bridge 测试全部 PASS。
+
+## 用户后续补充反馈与二次优化（v1.5.0-beta.1 体验反馈）
+
+### 补充反馈分析与技术归因
+1. **引用块（`<blockquote>`）插入式逐段对照诉求**：
+   - **现象**：虽然给 `blockquote + .paper-rss-translation` 加了边框，但多段引用块仍然是“所有原文在上，所有译文在下”，读者在长引用中对照依然需要大幅跳跃。
+   - **根因**：`ArticleExtractor.readerBlockMatches` 原先对含有嵌套 `<p>` 的 `<blockquote>` 没有跳过容器，导致整块作为单一单元提取；同时静态与动态（JS）插入均落在 `</blockquote>` 外部。
+   - **解法**：
+     - 若 `<blockquote>` 内含嵌套 reader block，跳过外部容器，使内部子块（`<p>`、`<h3>`、`<ul>` 等）成为独立翻译单元。子块翻译后自然生成在子块闭合标签之后（即 `<blockquote>` 内部），实现逐段对照并共享外层引用竖线。
+     - 若 `<blockquote>` 为纯文本单块，静态与动态均插在 `</blockquote>` 闭合标签之前（`beforeend`）。
+     - CSS 新增 `blockquote .paper-rss-translation`，消除重复左边框与多余内边距（`border-left: none; padding: 0`），使其自然融入引用块内部。
+2. **Markdown 非严格换行与行间距统一**：
+   - **现象**：用户在非严格换行（单换行 / `<br>`）下，原文行间距紧凑，而译文每行之间却出现了整行空行。
+   - **根因**：`String.plainText` 中 `(?is)<br\s*/?>` 替换为 `\n` 时，若 HTML 中存在 `<br>\n`，直接放大了为 `\n\n`（双换行）。LLM 收到带有双换行的文本后输出双换行，在 `white-space: pre-wrap;` 下渲染为双倍空行。
+   - **解法**：
+     - `String.plainText` 将正则升级为 `(?is)<br\s*/?>[ \t]*\r?\n?`，防止单换行膨胀。
+     - Prompt 约束：明确要求保留单换行，禁止将单换行转换为多余空行。
+     - 代码层防御性对齐：新增 `String.aligningNewlines(withOriginal:)`，当原文不含 `\n\n` 时，折叠译文中多余的连续换行，保证译文行距与原文严格匹配。
+
+### 嵌套列表（Nested List）与底部段落调度加固（实测样本 `16740453972212946442`）
+
+#### 1. 嵌套列表项（Nested List）逐项内联拆分与原位插入
+- **根因**：原 `listItemFragments` 使用非贪婪正则匹配 `<li>...</li>`，并在检测到包含 `<ul`、`<ol`、`<table` 时直接返回 `nil`，导致嵌套列表退化为单一巨型段落，所有子项合并沉底在列表最下方。
+- **解法**：
+  - `ArticleExtractor.swift`：实现基于标签栈（Stack）的列表块解析器 `listBlockPlan(in block: String) -> ReaderListPlan?`。
+  - 维护列表嵌套与 `li` 嵌套栈，准确提取每一项自身文本（剔除直接子列表后的文本）。叶子项文本为其内部内容；含子列表的父项文本为其前置标题/引导文字（如 `Dual Operating Modes:`），不混杂子项文字。
+  - 插入点定位：
+    - 含直接子列表的父项：译文插在直接子列表（`<ul>` / `<ol>`）的开标签之前，保证父项译文紧随父项文字，子列表及其缩进排布在其下方；
+    - 叶子项：译文插在当前项的 `</li>` 闭合标签之前；
+    - 结构保真：通过逆序字符偏移量插入，原字符串的所有原始结构字符、空白与缩进 100% 保持。
+  - `ArticleReaderView.swift`：WebKit 动态插入脚本中，当目标为 `LI` 且存在直接子列表时（`:scope > ul, :scope > ol`），将译文节点插在直接子列表前（`beforebegin`），叶子项插在 `beforeend`。
+
+#### 2. 文章底部段落（如 Related Guide / Tip）未被翻译问题修复
+- **根因**：
+  - WebKit 端 `publishParagraphs` 硬编码了 `.slice(0, 10)`，当文章前部存在多行表格（如 32 个单元格）或密集嵌套列表项时，视口与预加载范围内的单元数超过 10，排在后面的底部段落被硬性截断无法报送给原生层；
+  - Swift 端在异步翻译任务中缺乏 `defer` 清理，若上一批在未完全完成时退出可能造成 `pendingBilingualParagraphIDs` 锁死，且 `persistedBilingualSegments` 快照未在批次结束时从本地存储同步更新。
+- **解法**：
+  - WebKit 端将 `publishParagraphs` 报送上限放宽至 `slice(0, 40)`，给视口内密集短段落（表格单元格、嵌套列表与紧随段落）留出充足通道；
+  - Swift 端使用 `defer { pendingBilingualParagraphIDs.subtract(batch) }` 保证任何分支均清理 pending 状态；
+  - 批次完成时同步刷新 `persistedBilingualSegments`，并通过 `requestVisibleTranslationsIfPossible()` 自动无缝推进下一批，直至视口内所有段落全部翻译完毕。
+
+### 验收与验证
+- `Tests/ReaderBlockSemanticsTests.swift`：
+  - 更新 `testNestedListsDecomposeIntoItemLevelTranslationUnits`，断言嵌套列表项级拆分与父项在子列表前、子项在闭合前的树级插入；
+  - 更新 `testDiagnosePaperBlogArticle`，断言样本文章中 `Dual Operating Modes:` 与子项 `Global Mode`、`Local Project Mode` 均成功拆分，底部 `📖 Related Guide` 与 `💡 Tip` 完整提取并成功挂载译文。
+- 全套 22 项语义测试通过；`./scripts/verify.sh --web` 220 项 Web / Bridge 测试全部通过（0 failure）。

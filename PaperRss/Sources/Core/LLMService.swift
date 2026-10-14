@@ -3,20 +3,24 @@ import Foundation
 public struct AIModelHTTPResponse: Sendable {
     public let statusCode: Int
     public let data: Data
+    public let headers: [String: String]
 
-    public init(statusCode: Int, data: Data) {
+    public init(statusCode: Int, data: Data, headers: [String: String] = [:]) {
         self.statusCode = statusCode
         self.data = data
+        self.headers = headers
     }
 }
 
 public struct AIModelEventResponse: Sendable {
     public let statusCode: Int
     public let lines: AsyncThrowingStream<String, Error>
+    public let headers: [String: String]
 
-    public init(statusCode: Int, lines: AsyncThrowingStream<String, Error>) {
+    public init(statusCode: Int, lines: AsyncThrowingStream<String, Error>, headers: [String: String] = [:]) {
         self.statusCode = statusCode
         self.lines = lines
+        self.headers = headers
     }
 }
 
@@ -35,7 +39,7 @@ public struct URLSessionAIModelAdapter: AIModelPort, @unchecked Sendable {
     public func data(for request: URLRequest) async throws -> AIModelHTTPResponse {
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw LLMServiceError.invalidResponse }
-        return AIModelHTTPResponse(statusCode: http.statusCode, data: data)
+        return AIModelHTTPResponse(statusCode: http.statusCode, data: data, headers: Self.headers(http))
     }
 
     public func events(for request: URLRequest) async throws -> AIModelEventResponse {
@@ -55,7 +59,13 @@ public struct URLSessionAIModelAdapter: AIModelPort, @unchecked Sendable {
             }
             continuation.onTermination = { _ in task.cancel() }
         }
-        return AIModelEventResponse(statusCode: http.statusCode, lines: lines)
+        return AIModelEventResponse(statusCode: http.statusCode, lines: lines, headers: Self.headers(http))
+    }
+
+    private static func headers(_ response: HTTPURLResponse) -> [String: String] {
+        response.allHeaderFields.reduce(into: [:]) { result, item in
+            result[String(describing: item.key).lowercased()] = String(describing: item.value)
+        }
     }
 }
 
@@ -68,6 +78,8 @@ public enum LLMServiceError: LocalizedError, Sendable {
     case emptyResponse
     case authenticationFailed
     case rateLimited
+    case rateLimitedWithRetryAfter(TimeInterval)
+    case quotaExceeded
     case missingAPIKey
     case requestInProgress
     case translationOnly
@@ -90,7 +102,7 @@ public enum LLMServiceError: LocalizedError, Sendable {
             "身份验证失败。请在设置中检查当前供应商的 API Key 是否有效、完整且仍有权限。",
             englishFallback: "Authentication failed. Check that the current provider's API key is complete, valid, and still authorized."
         )
-        case .rateLimited: I18N.localized("请求过于频繁或当前额度受限。请稍后重试，并检查服务商账户额度。")
+        case .rateLimited, .rateLimitedWithRetryAfter, .quotaExceeded: I18N.localized("请求过于频繁或当前额度受限。请稍后重试，并检查服务商账户额度。")
         case .missingAPIKey: I18N.localized("尚未设置 API Key。请先在设置中完成 AI 服务配置。")
         case .requestInProgress: I18N.localized("已有 AI 任务正在进行，请稍后再试。")
         case let .httpStatus(code, message): I18N.localizedFormat("模型接口返回 HTTP %lld：%@", arguments: [code, message])
@@ -100,9 +112,16 @@ public enum LLMServiceError: LocalizedError, Sendable {
 
 public struct LLMService: Sendable {
     private let port: any AIModelPort
+    private let translationScheduler: TranslationRequestScheduler
 
     public init(port: any AIModelPort = URLSessionAIModelAdapter()) {
         self.port = port
+        self.translationScheduler = TranslationRequestScheduler()
+    }
+
+    init(port: any AIModelPort, translationScheduler: TranslationRequestScheduler) {
+        self.port = port
+        self.translationScheduler = translationScheduler
     }
 
     public func test(configuration: LLMConfiguration, apiKey: String) async throws {
@@ -315,6 +334,33 @@ public struct LLMService: Sendable {
         apiKey: String,
         onDelta: (@Sendable (String) async -> Void)? = nil
     ) async throws -> String {
+        try await scheduledTranslation(configuration: configuration) {
+            try await translateUnscheduled(paragraph: paragraph, configuration: configuration, apiKey: apiKey, onDelta: onDelta)
+        }
+    }
+
+    private func scheduledTranslation<T: Sendable>(
+        configuration: LLMConfiguration,
+        operation: @Sendable () async throws -> T
+    ) async throws -> T {
+        // Qwen MT has 60 RPM and may enforce RPM/60 as RPS. Keep headroom
+        // and share the budget across features, provider aliases and API keys.
+        let key = configuration.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+            + "|" + configuration.model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return try await translationScheduler.run(
+            key: key,
+            minimumInterval: configuration.usesTranslationAdaptation ? .seconds(1) : .zero,
+            operation: operation
+        )
+    }
+
+    private func translateUnscheduled(
+        paragraph: String,
+        configuration: LLMConfiguration,
+        apiKey: String,
+        onDelta: (@Sendable (String) async -> Void)?
+    ) async throws -> String {
         if configuration.usesTranslationAdaptation {
             let request = try makeTranslationRequest(paragraph: paragraph, configuration: configuration, apiKey: apiKey)
             let result = try await nonStreaming(request: request)
@@ -324,7 +370,7 @@ public struct LLMService: Sendable {
         }
         return try await complete(
             prompt: paragraph,
-            system: "Translate the following passage into \(configuration.targetLanguage). Preserve meaning, tone, numbers, names, links, and Markdown. Return only the translation.",
+            system: "Translate the following passage into \(configuration.targetLanguage). Preserve meaning, tone, numbers, names, links, line breaks, and Markdown. Do not convert single line breaks into blank lines. Return only the translation.",
             configuration: configuration,
             apiKey: apiKey,
             onDelta: onDelta
@@ -354,17 +400,20 @@ public struct LLMService: Sendable {
         let source = try JSONEncoder().encode(paragraphs)
         let prompt = """
         Translate every string in this JSON array into \(configuration.targetLanguage).
-        Keep array order exactly unchanged. Preserve meaning, tone, numbers, names, links, and Markdown.
+        Keep array order exactly unchanged. Preserve meaning, tone, numbers, names, links, line breaks, and Markdown.
+        Do not convert single line breaks into double line breaks or blank lines.
         Return ONLY a valid JSON array of translated strings: no Markdown fence, no explanation, and no omitted item.
 
         \(String(decoding: source, as: UTF8.self))
         """
-        let output = try await complete(
-            prompt: prompt,
-            system: "You are a precise translation engine. The response must be valid JSON and must contain exactly one translated string for every input string.",
-            configuration: configuration,
-            apiKey: apiKey
-        )
+        let output = try await scheduledTranslation(configuration: configuration) {
+            try await complete(
+                prompt: prompt,
+                system: "You are a precise translation engine. The response must be valid JSON and must contain exactly one translated string for every input string.",
+                configuration: configuration,
+                apiKey: apiKey
+            )
+        }
         let translations = try Self.decodeBatchTranslations(output)
         guard translations.count == paragraphs.count,
               translations.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
@@ -889,7 +938,7 @@ public struct LLMService: Sendable {
 
     private func nonStreaming(request: URLRequest) async throws -> String {
         let response = try await port.data(for: request)
-        try validate(statusCode: response.statusCode, data: response.data)
+        try validate(statusCode: response.statusCode, data: response.data, headers: response.headers)
         struct Response: Decodable { struct Choice: Decodable { struct Message: Decodable { let content: String? }; let message: Message; let finish_reason: String? }; let choices: [Choice] }
         guard let result = try? JSONDecoder().decode(Response.self, from: response.data), let text = result.choices.first?.message.content?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { throw LLMServiceError.invalidResponse }
         if result.choices.first?.finish_reason == "length" { throw LLMServiceError.truncatedResponse }
@@ -904,7 +953,7 @@ public struct LLMService: Sendable {
             // buffering or logging a provider's response (which may contain
             // sensitive request context).
             if response.statusCode == 401 || response.statusCode == 403 { throw LLMServiceError.authenticationFailed }
-            if response.statusCode == 429 { throw LLMServiceError.rateLimited }
+            if response.statusCode == 429 { throw Self.rateLimitError(headers: response.headers) }
             throw LLMServiceError.httpStatus(response.statusCode, "")
         }
         var output = ""
@@ -923,13 +972,34 @@ public struct LLMService: Sendable {
         return output
     }
 
-    private func validate(statusCode: Int, data: Data) throws {
+    private func validate(statusCode: Int, data: Data, headers: [String: String] = [:]) throws {
         guard (200...299).contains(statusCode) else {
+            // Inspect stable machine codes only; provider messages may contain
+            // request text and "quota" can also mean a temporary TPM limit.
+            let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let details = body?["error"] as? [String: Any] ?? body
+            let code = (details?["code"] as? String ?? details?["type"] as? String ?? "").lowercased()
+            if ["insufficient_quota", "quota_exceeded", "allocationquota.freetieronly", "arrearage"].contains(code) {
+                throw LLMServiceError.quotaExceeded
+            }
             if statusCode == 401 || statusCode == 403 { throw LLMServiceError.authenticationFailed }
-            if statusCode == 429 { throw LLMServiceError.rateLimited }
-            let body = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?.description ?? String(data: data.prefix(500), encoding: .utf8) ?? ""
-            throw LLMServiceError.httpStatus(statusCode, body)
+            if statusCode == 429 { throw Self.rateLimitError(headers: headers) }
+            let message = body?.description ?? String(data: data.prefix(500), encoding: .utf8) ?? ""
+            throw LLMServiceError.httpStatus(statusCode, message)
         }
+    }
+
+    static func rateLimitError(headers: [String: String], now: Date = .now) -> LLMServiceError {
+        guard let value = headers.first(where: { $0.key.lowercased() == "retry-after" })?.value else { return .rateLimited }
+        if let seconds = TimeInterval(value), seconds.isFinite, seconds >= 0 {
+            return .rateLimitedWithRetryAfter(min(seconds, 300))
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        guard let date = formatter.date(from: value) else { return .rateLimited }
+        return .rateLimitedWithRetryAfter(min(max(0, date.timeIntervalSince(now)), 300))
     }
 }
 

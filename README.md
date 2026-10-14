@@ -86,7 +86,7 @@ _本项目灵感启发自另一款优秀的开源RSS预读器 [NetNewsWire](http
 
 **稳定版 v1.4.5（Build 41）** 推荐所有用户升级：列表和正文切换更顺畅，修复普通列表滚动闪退与部分正文图片加载失败，并优化杂志翻页和阅读音浪。详情见 [更新记录](CHANGELOG.md)。
 
-**[Beta v1.5.0-beta.2（Build 43）](https://github.com/ohmyangboy/PaperRss/releases/tag/v1.5.0-beta.2)** 已发布：支持 AI 摘要的 Markdown 完整渲染与表格展示，并包含 macOS iCloud 账户同步（Beta）、订阅重命名与系统共享改进。详情见 [更新记录](CHANGELOG.md)。
+**[Beta v1.5.0-beta.3（Build 44）](https://github.com/ohmyangboy/PaperRss/releases/tag/v1.5.0-beta.3)** 已发布：改进双语翻译的嵌套列表、引用对照、换行与滚动更新，优化翻译请求调度，并支持设置页的 ⌘, 开关、方向键与 Tab 导航。详情见 [更新记录](CHANGELOG.md)。
 
 从 [Releases](https://github.com/ohmyangboy/PaperRss/releases) 下载最新的 `.dmg` 安装包，打开后将 PaperRss 拖入 Applications 文件夹即可使用。
 

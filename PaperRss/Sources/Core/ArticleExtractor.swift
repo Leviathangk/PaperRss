@@ -819,7 +819,7 @@ public enum ArticleExtractor {
         var selected: [ReaderBlockMatch] = []
         var selectedEnd: String.Index?
         for candidate in matches {
-            if candidate.tag == "div" && candidate.hasNestedReaderBlock {
+            if (candidate.tag == "div" || candidate.tag == "blockquote") && candidate.hasNestedReaderBlock {
                 continue
             }
             if preRanges.contains(where: { $0.overlaps(candidate.range) }), candidate.tag != "table" {
@@ -914,48 +914,177 @@ public enum ArticleExtractor {
         return (plan, gapAfter)
     }
 
-    private struct ReaderListItem {
-        let gapBefore: String
-        let html: String
-        let isTranslatable: Bool
+    private struct ReaderListPlan {
+        struct Item {
+            let openTagRange: Range<String.Index>
+            let contentStart: String.Index
+            let contentEnd: String.Index
+            let firstSublistStart: String.Index?
+            let ownHTML: String
+            let ownText: String
+            let isTranslatable: Bool
+        }
+
+        let items: [Item]
+
+        var translatableFragments: [String] {
+            items.filter(\.isTranslatable).map(\.ownHTML)
+        }
+
+        func render(
+            block: String,
+            paragraphIndex: Int,
+            segmentsByID: [String: BilingualSegment],
+            pendingIDs: Set<String>
+        ) -> String {
+            struct Insertion {
+                let offset: String.Index
+                let text: String
+            }
+            var insertions: [Insertion] = []
+            let translatableItems = items.filter(\.isTranslatable)
+            let translatableCount = translatableItems.count
+
+            for (index, item) in translatableItems.enumerated() {
+                let id = translatableCount > 1 ? "p\(paragraphIndex)_\(index)" : "p\(paragraphIndex)"
+                let translationHTML: String?
+                if let segment = segmentsByID[id],
+                   item.ownText.isSameReaderParagraph(as: segment.original) {
+                    translationHTML = ArticleExtractor.translationMarkup(for: segment.translation, id: id)
+                } else if pendingIDs.contains(id) {
+                    translationHTML = ArticleExtractor.pendingTranslationMarkup(for: id)
+                } else {
+                    translationHTML = nil
+                }
+
+                // 1. 在 <li 闭合字符 > 前插入 data-paper-rss-id
+                let insertAttrIndex = block.index(before: item.openTagRange.upperBound)
+                insertions.append(Insertion(offset: insertAttrIndex, text: " data-paper-rss-id=\"\(id)\""))
+
+                // 2. 译文插入点：若包含直接子列表，插在首个子列表开标签之前；
+                // 否则插在当前 li 的 </li> 闭合标签之前。
+                if let translationHTML {
+                    let insertOffset = item.firstSublistStart ?? item.contentEnd
+                    insertions.append(Insertion(offset: insertOffset, text: translationHTML))
+                }
+            }
+
+            var rendered = block
+            for insertion in insertions.sorted(by: { $0.offset > $1.offset }) {
+                rendered.insert(contentsOf: insertion.text, at: insertion.offset)
+            }
+            return rendered
+        }
     }
 
-    private static func listItemFragments(in block: String) -> (items: [ReaderListItem], gapAfter: String)? {
-        let itemPattern = "(?is)<li\\b((?:[^>\"']|\"[^\"]*\"|'[^']*')*)>([\\s\\S]*?)</li>"
-        guard let expression = try? NSRegularExpression(pattern: itemPattern) else { return nil }
-        let range = NSRange(block.startIndex..., in: block)
+    private static func listBlockPlan(in block: String) -> ReaderListPlan? {
+        let tagPattern = "(?is)</?([a-z][a-z0-9]*)\\b((?:[^>\"']|\"[^\"]*\"|'[^']*')*)>"
+        guard let expression = try? NSRegularExpression(pattern: tagPattern) else { return nil }
+        let matches = expression.matches(in: block, range: NSRange(block.startIndex..., in: block))
 
-        var items: [(fragment: String, isTranslatable: Bool)] = []
-        var gaps: [String] = []
-        var cursor = block.startIndex
-        for match in expression.matches(in: block, range: range) {
+        struct HTMLToken {
+            let range: Range<String.Index>
+            let name: String
+            let isClosing: Bool
+        }
+
+        var tokens: [HTMLToken] = []
+        for match in matches {
             guard let fullRange = Range(match.range, in: block),
-                  let innerRange = Range(match.range(at: 2), in: block) else { return nil }
-            let inner = block[innerRange].lowercased()
-            // 嵌套列表或表格：非贪婪匹配会让外层片段提前闭合，拆分结果结构不可信，整表/整列表保留。
-            guard !inner.contains("<ul"), !inner.contains("<ol"), !inner.contains("<table"), !inner.contains("<li") else { return nil }
-            gaps.append(String(block[cursor..<fullRange.lowerBound]))
-            let fragment = String(block[fullRange])
-            let itemText = fragment.plainText.trimmingCharacters(in: .whitespacesAndNewlines)
-            let isTranslatable = !itemText.isEmpty
-                && !inner.contains("<pre")
-                && !ArticleMathDetector.strippingFormulas(in: itemText)
-                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            items.append((fragment, isTranslatable))
-            cursor = fullRange.upperBound
+                  let nameRange = Range(match.range(at: 1), in: block) else { continue }
+            let name = block[nameRange].lowercased()
+            let isClosing = block[fullRange].hasPrefix("</")
+            tokens.append(HTMLToken(range: fullRange, name: name, isClosing: isClosing))
         }
-        let gapAfter = String(block[cursor...])
-        guard items.contains(where: { $0.isTranslatable }) else { return nil }
 
-        // 完整性校验：项之间的空隙必须只有结构空白（列表容器空隙），不允许承载可见文本。
-        guard gaps.allSatisfy({
-            $0.plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }) else { return nil }
-
-        let plan = items.enumerated().map { index, item in
-            ReaderListItem(gapBefore: gaps[index], html: item.fragment, isTranslatable: item.isTranslatable)
+        struct OpenList {
+            let name: String
+            let openRange: Range<String.Index>
         }
-        return (plan, gapAfter)
+
+        struct OpenLI {
+            let openTagRange: Range<String.Index>
+            let contentStart: String.Index
+            var firstSublistStart: String.Index?
+            var sublistRanges: [Range<String.Index>] = []
+        }
+
+        var listStack: [OpenList] = []
+        var liStack: [OpenLI] = []
+        var parsedItems: [ReaderListPlan.Item] = []
+        var preDepth = 0
+
+        for token in tokens {
+            if token.name == "pre" {
+                if token.isClosing {
+                    preDepth = max(0, preDepth - 1)
+                } else {
+                    preDepth += 1
+                }
+                continue
+            }
+            guard preDepth == 0 else { continue }
+
+            if token.name == "ul" || token.name == "ol" {
+                if token.isClosing {
+                    guard let lastList = listStack.popLast() else { return nil }
+                    let sublistRange = lastList.openRange.lowerBound..<token.range.upperBound
+                    if !liStack.isEmpty {
+                        liStack[liStack.count - 1].sublistRanges.append(sublistRange)
+                    }
+                } else {
+                    if !liStack.isEmpty && liStack.last?.firstSublistStart == nil {
+                        liStack[liStack.count - 1].firstSublistStart = token.range.lowerBound
+                    }
+                    listStack.append(OpenList(name: token.name, openRange: token.range))
+                }
+            } else if token.name == "li" {
+                if token.isClosing {
+                    guard let openLI = liStack.popLast() else { return nil }
+                    let contentEnd = token.range.lowerBound
+
+                    var ownHTML = ""
+                    var cursor = openLI.contentStart
+                    for subRange in openLI.sublistRanges.sorted(by: { $0.lowerBound < $1.lowerBound }) {
+                        if cursor < subRange.lowerBound {
+                            ownHTML += block[cursor..<subRange.lowerBound]
+                        }
+                        cursor = max(cursor, subRange.upperBound)
+                    }
+                    if cursor < contentEnd {
+                        ownHTML += block[cursor..<contentEnd]
+                    }
+
+                    let plain = ownHTML.plainText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let isTranslatable = !plain.isEmpty
+                        && !ownHTML.contains("<pre")
+                        && !ArticleMathDetector.strippingFormulas(in: plain)
+                            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+                    parsedItems.append(ReaderListPlan.Item(
+                        openTagRange: openLI.openTagRange,
+                        contentStart: openLI.contentStart,
+                        contentEnd: contentEnd,
+                        firstSublistStart: openLI.firstSublistStart,
+                        ownHTML: ownHTML,
+                        ownText: plain,
+                        isTranslatable: isTranslatable
+                    ))
+                } else {
+                    liStack.append(OpenLI(
+                        openTagRange: token.range,
+                        contentStart: token.range.upperBound,
+                        firstSublistStart: nil,
+                        sublistRanges: []
+                    ))
+                }
+            }
+        }
+
+        guard listStack.isEmpty, liStack.isEmpty else { return nil }
+        guard parsedItems.contains(where: { $0.isTranslatable }) else { return nil }
+        parsedItems.sort { $0.openTagRange.lowerBound < $1.openTagRange.lowerBound }
+        return ReaderListPlan(items: parsedItems)
     }
 
     /// 段落拆分的统一入口。`tablePlan` 非 nil 表示该表格拆分成了单元格级
@@ -968,14 +1097,14 @@ public enum ArticleExtractor {
     ) -> (
         fragments: [String],
         tablePlan: (cells: [ReaderTableCell], gapAfter: String)?,
-        listPlan: (items: [ReaderListItem], gapAfter: String)?,
+        listPlan: ReaderListPlan?,
         isPreformatted: Bool
     ) {
         if match.tag == "table", let tablePlan = tableCellFragments(in: block) {
             return (tablePlan.cells.filter(\.isTranslatable).map(\.html), tablePlan, nil, false)
         }
-        if (match.tag == "ul" || match.tag == "ol"), let listPlan = listItemFragments(in: block) {
-            return (listPlan.items.filter(\.isTranslatable).map(\.html), nil, listPlan, false)
+        if (match.tag == "ul" || match.tag == "ol"), let listPlan = listBlockPlan(in: block) {
+            return (listPlan.translatableFragments, nil, listPlan, false)
         }
         if block.range(of: "(?is)<pre\\b", options: .regularExpression) != nil {
             return ([block], nil, nil, true)
@@ -1144,30 +1273,15 @@ public enum ArticleExtractor {
                 continue
             }
             if let listPlan = plan.listPlan {
-                // 列表项级翻译：译文插在 </li> 闭合之前，使原文与译文保持在同一列表项内，
-                // 避免在 <ul>/<ol> 中插入非法的直接兄弟节点破坏列表排版与序号。
-                let translatableCount = listPlan.items.filter(\.isTranslatable).count
-                var itemIndex = 0
-                for item in listPlan.items {
-                    rendered += item.gapBefore
-                    guard item.isTranslatable else {
-                        rendered += item.html
-                        continue
-                    }
-                    let id = translatableCount > 1 ? "p\(paragraphIndex)_\(itemIndex)" : "p\(paragraphIndex)"
-                    itemIndex += 1
-                    let translationHTML: String?
-                    if let segment = segmentsByID[id],
-                       item.html.plainText.isSameReaderParagraph(as: segment.original) {
-                        translationHTML = translationMarkup(for: segment.translation, id: id)
-                    } else if pendingIDs.contains(id) {
-                        translationHTML = pendingTranslationMarkup(for: id)
-                    } else {
-                        translationHTML = nil
-                    }
-                    rendered += annotatedListItem(item.html, id: id, translationHTML: translationHTML)
-                }
-                rendered += listPlan.gapAfter
+                // 列表项级翻译：支持多层嵌套列表与扁平列表。
+                // 自身有文本的父列表项译文插在子列表前，叶子项插在 </li> 闭合前，
+                // 保持严格的原生 DOM 树结构与列表缩进。
+                rendered += listPlan.render(
+                    block: block,
+                    paragraphIndex: paragraphIndex,
+                    segmentsByID: segmentsByID,
+                    pendingIDs: pendingIDs
+                )
                 paragraphIndex += 1
                 continue
             }
@@ -1175,12 +1289,23 @@ public enum ArticleExtractor {
             let fragments = plan.fragments
             for (index, fragment) in fragments.enumerated() {
                 let id = fragments.count > 1 ? "p\(paragraphIndex)_\(index)" : "p\(paragraphIndex)"
-                rendered += annotatedReaderBlock(fragment, id: id)
+                let translationHTML: String?
                 if let segment = segmentsByID[id],
                    fragment.plainText.isSameReaderParagraph(as: segment.original) {
-                    rendered += translationMarkup(for: segment.translation, id: id)
+                    translationHTML = translationMarkup(for: segment.translation, id: id)
                 } else if pendingIDs.contains(id) {
-                    rendered += pendingTranslationMarkup(for: id)
+                    translationHTML = pendingTranslationMarkup(for: id)
+                } else {
+                    translationHTML = nil
+                }
+
+                if match.tag == "blockquote" {
+                    rendered += annotatedBlockquote(fragment, id: id, translationHTML: translationHTML)
+                } else {
+                    rendered += annotatedReaderBlock(fragment, id: id)
+                    if let translationHTML {
+                        rendered += translationHTML
+                    }
                 }
             }
             paragraphIndex += 1
@@ -1196,6 +1321,19 @@ public enum ArticleExtractor {
         return output
     }
 
+    /// 纯文本引用块：注解落在 blockquote 开标签，译文插在 </blockquote> 闭合标签之前，
+    /// 使单段引用及其译文均保持在同一个引用装饰容器内。
+    private static func annotatedBlockquote(_ quoteHTML: String, id: String, translationHTML: String?) -> String {
+        var output = annotatedReaderBlock(quoteHTML, id: id)
+        guard let translationHTML else { return output }
+        if let closingRange = output.range(of: "</blockquote>", options: [.backwards, .caseInsensitive]) {
+            output.insert(contentsOf: translationHTML, at: closingRange.lowerBound)
+        } else {
+            output += translationHTML
+        }
+        return output
+    }
+
     /// 单元格片段：注解落在 td/th 开标签，译文插在本格闭合标签之前，
     /// 使原文与译文始终停留在同一个表格单元内。
     private static func annotatedTableCell(_ cellHTML: String, id: String, translationHTML: String?) -> String {
@@ -1204,19 +1342,6 @@ public enum ArticleExtractor {
         let closingTag = output.lowercased().hasPrefix("<th") ? "</th>" : "</td>"
         guard let closingRange = output.range(of: closingTag, options: .backwards) else { return output }
         output.insert(contentsOf: translationHTML, at: closingRange.lowerBound)
-        return output
-    }
-
-    /// 列表项片段：注解落在 li 开标签，译文插在 </li> 闭合标签之前，
-    /// 使原文与译文始终停留在同一个列表项内。
-    private static func annotatedListItem(_ itemHTML: String, id: String, translationHTML: String?) -> String {
-        var output = annotatedReaderBlock(itemHTML, id: id)
-        guard let translationHTML else { return output }
-        if let closingRange = output.range(of: "</li>", options: [.backwards, .caseInsensitive]) {
-            output.insert(contentsOf: translationHTML, at: closingRange.lowerBound)
-        } else {
-            output += translationHTML
-        }
         return output
     }
 
