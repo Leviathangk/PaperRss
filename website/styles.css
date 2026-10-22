@@ -580,6 +580,10 @@ body {
   position: relative;
   height: 400vh;
   margin-bottom: 2rem;
+  /* Translated cards stick with the viewport and would otherwise paint
+     over the philosophy rail and feature cards. Clip to this section;
+     clip does not create a scroll container, so sticky still tracks the page. */
+  overflow: clip;
 }
 
 .stage-sticky-viewport {
