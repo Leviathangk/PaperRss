@@ -418,7 +418,7 @@ struct MagazineBrowserView<Tile: View>: View {
 
     var body: some View {
         ScrollViewReader { proxy in
-            magazinePages(proxy: proxy)
+            let pageSurface = magazinePages(proxy: proxy)
             .environment(\.entryTranslations, presentedTranslations)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             // 封皮与右页快照在同一个合成器时间轴上移动；实时页面等落页后再接管。
@@ -462,6 +462,8 @@ struct MagazineBrowserView<Tile: View>: View {
                         .allowsHitTesting(false).transition(.opacity)
                 }
             }
+
+            let loadingSurface = pageSurface
             .task(id: noticeID) {
                 guard notice != nil else { return }
                 do { try await Task.sleep(for: .seconds(2)) } catch { return }
@@ -516,6 +518,8 @@ struct MagazineBrowserView<Tile: View>: View {
                 coverAnimating = false
                 coverSnapshots = nil
             }
+
+            let observedSurface = loadingSurface
             .onPreferenceChange(MagazinePageVisibilityKey.self) { frames in
                 guard isBrowsing, turning == .scroll, !memory.isRestoring, !railScrubActive else { return }
                 if !scrollPositionReady {
@@ -580,6 +584,8 @@ struct MagazineBrowserView<Tile: View>: View {
                 guard !Task.isCancelled else { return }
                 restore(proxy: proxy)
             }
+
+            observedSurface
             .onChange(of: turningRaw) { _, _ in scrollPositionReady = false }
             .onChange(of: hasMore) { _, value in if !value { pendingPageIndex = nil } }
             .onChange(of: keyboardRequest) { _, request in

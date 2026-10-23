@@ -1,0 +1,75 @@
+name: PR checks
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+permissions:
+  contents: read
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  policy:
+    name: PR policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: node --test Tests/pr-policy.test.mjs
+      - run: node scripts/check-pr.mjs
+  web:
+    name: PR web tests
+    runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - run: ./scripts/verify.sh --web
+  core:
+    name: PR core tests
+    runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - run: xcodebuild -version && swift --version
+      - name: Core tests (pure Markdown changes exempt)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          node --input-type=module <<'JS'
+          import { execFileSync } from 'node:child_process';
+          const { BASE_SHA: base, HEAD_SHA: head } = process.env;
+          if (![base, head].every(s => /^[a-f0-9]{40}$/.test(s))) process.exit(1);
+          const files = execFileSync('git', ['diff', '--no-renames', '--name-only', '-z', `${base}...${head}`], { encoding: 'utf8' }).split('\0').filter(Boolean);
+          if (files.length && files.every(f => f.endsWith('.md'))) {
+            console.log('Core: exempt for pure Markdown diff; no Core test pass claimed.');
+          } else {
+            execFileSync('./scripts/verify.sh', ['--core'], { stdio: 'inherit' });
+          }
+          JS
+  gate:
+    name: PR gate
+    if: ${{ always() }}
+    needs: [policy, web, core]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Require all checks to succeed
+        env:
+          POLICY: ${{ needs.policy.result }}
+          WEB: ${{ needs.web.result }}
+          CORE: ${{ needs.core.result }}
+        run: test "$POLICY" = success && test "$WEB" = success && test "$CORE" = success
