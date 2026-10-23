@@ -258,6 +258,62 @@ final class ICloudLocalCopyTests: XCTestCase {
         XCTAssertEqual(mapped.counts.feeds, 0)
     }
 
+    // Deliberately rewrite both nested and outer object key order; array order
+    // and scalar values are preserved. All data lives in this test's database.
+    private func orderedJSON(_ value: Any, reversed: Bool) throws -> String {
+        if let object = value as? [String: Any] {
+            let keys = object.keys.sorted()
+            return "{" + (try (reversed ? Array(keys.reversed()) : keys).map { key in
+                let quoted = try orderedJSON(key, reversed: reversed)
+                return quoted + ":" + (try orderedJSON(object[key]!, reversed: reversed))
+            }).joined(separator: ",") + "}"
+        }
+        if let array = value as? [Any] {
+            return "[" + (try array.map { try orderedJSON($0, reversed: reversed) }).joined(separator: ",") + "]"
+        }
+        return String(decoding: try JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]), as: UTF8.self)
+    }
+
+    private func orphanJSONFixture() throws -> (String, String, [String: Any]) {
+        let existing = try feed(), fresh = try feed("https://new.example/rss")
+        let url = URL(string: "https://source.example/rss")!
+        let identity = try ICloudSyncIdentity.articleRecordName(feedURL: url, sourceItemID: "remote-only")!
+        let wire = try ICloudRecordEnvelope(kind: .read, recordName: "read-v1:" + identity.dropFirst("article-v1:".count),
+            feedURL: url.absoluteString, sourceItemID: "remote-only", fields: ["value": .init(value: .flag(true), version: .bootstrap)])
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(wire)) as? [String: Any])
+        // Unknown fields must remain protected too, including exact large integers.
+        object["future"] = ["counter": Int64(9007199254740993), "values": [1, 2]] as [String: Any]
+        try database.write { db in
+            try db.execute(sql: "INSERT INTO icloud_records(account_id, zone, record_name, envelope_json) VALUES (?, ?, ?, ?)",
+                arguments: [cloud, wire.zone.rawValue, wire.recordName, try orderedJSON(object, reversed: true)])
+        }
+        return (existing, fresh, object)
+    }
+
+    func testJSONKeyOrderDoesNotInvalidateOrphanCopyPlan() async throws {
+        let (existing, fresh, object) = try orphanJSONFixture()
+        let reviewed = try await plan(feeds: [existing, fresh])
+        XCTAssertEqual(reviewed.counts.feeds, 1)
+        XCTAssertEqual(reviewed.counts.skippedFeeds, 1)
+        let reordered = try orderedJSON(object, reversed: false)
+        XCTAssertNotEqual(reordered, try orderedJSON(object, reversed: true))
+        try database.write { try $0.execute(sql: "UPDATE icloud_records SET envelope_json = ? WHERE account_id = ?", arguments: [reordered, cloud]) }
+        let copied = try await execute(reviewed)
+        XCTAssertEqual(copied.feeds, 1)
+        let urls = try database.read { try String.fetchAll($0, sql: "SELECT feed_url FROM feeds WHERE account_id = ?", arguments: [cloud]) }
+        XCTAssertEqual(urls, ["https://new.example/rss"])
+    }
+
+    func testJSONValueChangeStillInvalidatesCopyPlan() async throws {
+        let (existing, fresh, original) = try orphanJSONFixture()
+        let reviewed = try await plan(feeds: [existing, fresh])
+        var changed = original
+        changed["future"] = ["counter": Int64(9007199254740992), "values": [1, 2]] as [String: Any]
+        let json = try orderedJSON(changed, reversed: false)
+        try database.write { try $0.execute(sql: "UPDATE icloud_records SET envelope_json = ? WHERE account_id = ?", arguments: [json, cloud]) }
+        try await expectFailure(.stalePlan) { _ = try await self.execute(reviewed) }
+    }
+
     func testDuplicateAndOccupiedFolderNamesAndForeignRelationshipsAreSkipped() async throws {
         let f = try feed(), duplicate1 = try folder("Duplicate"), duplicate2 = try folder("Duplicate")
         let occupied = try folder("Occupied"), new = try folder("New")

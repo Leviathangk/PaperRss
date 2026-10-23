@@ -242,7 +242,7 @@ struct ICloudLocalCopyRepository: Sendable {
         var rows: [Row] = [], bytes = 0
         while let row = try cursor.next() {
             try cancellation.check()
-            for (_, value) in row {
+            for (column, value) in row {
                 if case .string(let text) = value.storage { bytes += text.utf8.count }
             }
             guard rows.count < 50000, bytes <= 128 * 1024 * 1024 else { throw ICloudLocalCopyError.scanLimitExceeded }
@@ -309,6 +309,9 @@ struct ICloudLocalCopyRepository: Sendable {
             guard byteCount <= 128 * 1024 * 1024 else { throw ICloudLocalCopyError.scanLimitExceeded }
             hash.update(data: Data("\(bytes.count):".utf8)); hash.update(data: bytes)
         }
+        // Hash JSON values, not serialization order. This also covers existing
+        // unsorted persisted records without rewriting them or dropping fields.
+        let jsonColumns: Set<String> = ["payload_json", "field_versions_json", "envelope_json", "origins_json"]
         func rows(_ sql: String, _ arguments: StatementArguments) throws {
             try append(Data(sql.utf8))
             let cursor = try Row.fetchCursor(db, sql: sql, arguments: arguments)
@@ -322,7 +325,14 @@ struct ICloudLocalCopyRepository: Sendable {
                     case .null: try append(Data("n".utf8))
                     case .int64(let v): try append(Data("i\(v)".utf8))
                     case .double(let v): try append(Data("d\(v.bitPattern)".utf8))
-                    case .string(let v): try append(Data("s".utf8)); try append(Data(v.utf8))
+                    case .string(let v):
+                        try append(Data("s".utf8))
+                        if jsonColumns.contains(column) {
+                            let object = try JSONSerialization.jsonObject(with: Data(v.utf8), options: [.fragmentsAllowed])
+                            try append(JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .fragmentsAllowed]))
+                        } else {
+                            try append(Data(v.utf8))
+                        }
                     case .blob(let v): try append(Data("b".utf8)); try append(v)
                     }
                 }
