@@ -242,7 +242,7 @@ struct ICloudLocalCopyRepository: Sendable {
         var rows: [Row] = [], bytes = 0
         while let row = try cursor.next() {
             try cancellation.check()
-            for (column, value) in row {
+            for (_, value) in row {
                 if case .string(let text) = value.storage { bytes += text.utf8.count }
             }
             guard rows.count < 50000, bytes <= 128 * 1024 * 1024 else { throw ICloudLocalCopyError.scanLimitExceeded }
@@ -320,7 +320,7 @@ struct ICloudLocalCopyRepository: Sendable {
                 rowCount += 1
                 guard rowCount <= 200000 else { throw ICloudLocalCopyError.scanLimitExceeded }
                 try append(Data("row:\(row.count)".utf8))
-                for (_, value) in row {
+                for (column, value) in row {
                     switch value.storage {
                     case .null: try append(Data("n".utf8))
                     case .int64(let v): try append(Data("i\(v)".utf8))
