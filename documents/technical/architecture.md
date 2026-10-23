@@ -156,7 +156,7 @@ Swift Package 的部署目标是 macOS 14。Xcode 工程另有 macOS 14 与 iOS 
 - 翻译记忆按标准化文本、Base URL、模型、目标语言和 Prompt 版本寻址，跨文章复用，并限制为最多 2,000 条。
 - 思考深度属于功能配置并实际进入每个请求；Provider adapter 只执行协议能力限制，设置界面不暴露 temperature。
 - Google Gemini 通过官方 OpenAI-compatible 根地址（`/v1beta/openai`）复用同一消息与 SSE 解析；Gemini 3.x 映射 `reasoning_effort`。
-- 聊天请求的 `temperature` 由 `LLMConfiguration.omitsSamplingTemperature` 统一决定：默认发送配置值 0.2；下列模型省略该字段，由服务端使用固定值。官方 Gemini 接口上的 Gemini 3.x（该参数已废弃）；Kimi 的 `kimi-k3`、`kimi-k2.5`、`kimi-k2.6`、`kimi-k2.7`（含 `kimi-k2.7-code` 与高速版）、`kimi-k2-thinking`。不能改写成写死 `1`，因为 `kimi-k2.6` 关闭思考时的固定值是 0.6。`moonshot-v1` 与仍接受自定义温度的旧模型继续发送 0.2。这是一份随模型 API 变化的固定名单，供应商改约束时须同步更新该函数、本段和对应测试。
+- 聊天请求的 `temperature` 由 `LLMConfiguration.omitsSamplingTemperature` 统一决定，请求体和缓存指纹共用此判断。默认发送配置值 0.2；官方 Gemini 接口上的 Gemini 3.x（该参数已废弃）省略该字段。Kimi 仅在 Moonshot 官方 `https://api.moonshot.cn/v1`（国内）或 `https://api.moonshot.ai/v1`（国际）的 `kimi-k3`、`kimi-k2.5`、`kimi-k2.6`、`kimi-k2.7`（含 `kimi-k2.7-code` 与高速版）、`kimi-k2-thinking` 省略，由服务端使用固定值；URL 解析后精确匹配 host，接受大小写无关的 scheme/host、默认 HTTPS 端口和 `/v1` 的可选尾斜杠。未知网关、自托管及其他路径保留配置值和调用方 override，不能从同名模型推断端点约束。不能改写成写死 `1`，因为 `kimi-k2.6` 关闭思考时的固定值是 0.6。`moonshot-v1` 与仍接受自定义温度的旧模型继续发送配置值。这是一份随模型 API 变化的固定名单，供应商改约束时须同步更新该函数、本段和对应测试。
 - 供应商详情支持 `GET /models` 拉取候选目录；只有用户确认添加并保存草稿后模型才进入已配置目录，失败时不覆盖已有目录。
 - 切换 Provider 或模型不隐藏已有摘要、译文和划词标注；摘要重生成成功后事务替换，失败时保留旧摘要。
 ### 打开文章时自动翻译（Beta）

@@ -960,7 +960,7 @@ public struct AIExecutionContext: Hashable, Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         let effectiveReasoning = AIReasoningCapabilities.canonical(configuration.reasoningMode)
-        let effectiveTemperature = LLMConfiguration.omitsSamplingTemperature(modelID: normalizedModel, usesGeminiAPI: configuration.usesGeminiAPI)
+        let effectiveTemperature = LLMConfiguration.omitsSamplingTemperature(modelID: normalizedModel, baseURL: configuration.baseURL, usesGeminiAPI: configuration.usesGeminiAPI)
             ? "omitted"
             : String(configuration.temperature)
 

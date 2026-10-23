@@ -612,13 +612,19 @@ public struct LLMConfiguration: Codable, Hashable, Sendable {
     /// 聊天请求是否省略 `temperature`。默认仍发送配置值（0.2）。
     /// 这里只列传上去会 400，或官方要求不要传该字段的模型：
     /// 官方 Gemini 且 id 以 `gemini-3` 开头（字段已废弃）；
-    /// `kimi-k2.5`、`kimi-k2.6`、`kimi-k2.7`、`kimi-k2-thinking`、`kimi-k3`
+    /// Moonshot 官方 `/v1` 接口上的 `kimi-k2.5`、`kimi-k2.6`、`kimi-k2.7`、`kimi-k2-thinking`、`kimi-k3`
     ///（温度由服务端固定；`kimi-k2.6` 思考开启为 1.0、关闭为 0.6，不能写死 1）。
+    /// 未知网关及自托管同名模型保留配置值，不能仅凭模型名推断端点约束。
     /// 名单随模型 API 变化，改约束时同步更新本函数、architecture.md 的温度说明和对应测试。
     /// https://platform.kimi.ai/docs/api/models-overview
-    static func omitsSamplingTemperature(modelID: String, usesGeminiAPI: Bool) -> Bool {
+    static func omitsSamplingTemperature(modelID: String, baseURL: String, usesGeminiAPI: Bool) -> Bool {
         let id = modelID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if usesGeminiAPI && id.hasPrefix("gemini-3") { return true }
+        guard let endpoint = URLComponents(string: baseURL.trimmingCharacters(in: .whitespacesAndNewlines)),
+              endpoint.scheme?.lowercased() == "https",
+              ["api.moonshot.cn", "api.moonshot.ai"].contains(endpoint.host?.lowercased() ?? ""),
+              endpoint.port == nil || endpoint.port == 443,
+              endpoint.path == "/v1" || endpoint.path == "/v1/" else { return false }
         let leaf = id.split(separator: "/").last.map(String.init) ?? id
         let fixedFamilies = ["kimi-k2.5", "kimi-k2.6", "kimi-k2.7", "kimi-k2-thinking", "kimi-k3"]
         return fixedFamilies.contains { leaf == $0 || leaf.hasPrefix($0 + "-") }
