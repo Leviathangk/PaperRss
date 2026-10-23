@@ -88,6 +88,7 @@ public final class AppStore: ObservableObject {
     @Published public private(set) var readerAppearance: ReaderAppearance = .default
     public var articleFontSize: Int { readerAppearance.fontSize }
     @Published public private(set) var articleRetentionPolicy: ArticleRetentionPolicy = .sixMonths
+    @Published public private(set) var automaticallyFetchArticleContent = true
 
     /// Feed 图标仓库：行渲染经它同步查询已就绪图标，杜绝 AsyncImage 加载期闪烁。
     public let iconStore = FeedIconStore()
@@ -338,6 +339,7 @@ public final class AppStore: ObservableObject {
 
     private let persistenceURL: URL
     private let shouldPersistAISettings: Bool
+    private let articleFetchPreferences: UserDefaults?
     private let feedFetcher: @Sendable (Feed) async throws -> FeedFetchResult
     private let llm: LLMService
     private let preparationEngine: ArticlePreparationEngine
@@ -361,6 +363,7 @@ public final class AppStore: ObservableObject {
         static let legacyAISettingsV4 = "PaperRss.aiSettings.v4"
         static let legacyAISettings = "PaperRss.aiSettings.v2"
         static let articleRetentionPolicy = "PaperRss.articleRetentionPolicy"
+        static let automaticallyFetchArticleContent = "PaperRss.automaticallyFetchArticleContent"
         static let lastMaintenanceTimestamp = "PaperRss.lastMaintenanceTimestamp"
     }
 
@@ -415,6 +418,7 @@ public final class AppStore: ObservableObject {
         // not leak the v2 provider snapshot into the process-wide defaults in
         // those cases; the real app uses the default locations and persists it.
         self.shouldPersistAISettings = databaseURL == nil && persistenceURL == nil
+        self.articleFetchPreferences = databaseURL == nil && persistenceURL == nil ? .standard : nil
         let sqliteURL = databaseURL ?? directory.appendingPathComponent("library.sqlite")
 
         do {
@@ -461,6 +465,7 @@ public final class AppStore: ObservableObject {
         }
 
         // 3. Load Preferences
+        self.automaticallyFetchArticleContent = articleFetchPreferences?.object(forKey: PreferenceKey.automaticallyFetchArticleContent) as? Bool ?? true
         let preferences = UserDefaults.standard
         refreshInterval = FeedRefreshInterval(rawValue: preferences.string(forKey: PreferenceKey.refreshInterval) ?? "") ?? .twoHours
         refreshOnLaunch = preferences.object(forKey: PreferenceKey.refreshOnLaunch) as? Bool ?? true
@@ -548,7 +553,8 @@ public final class AppStore: ObservableObject {
         customFeedFetcher: (@Sendable (Feed, Bool) async throws -> FeedFetchResult)? = nil,
         credentialStore: CredentialStore? = nil,
         pageLoader: (any ArticlePageLoading)? = nil,
-        aiModelPort: (any AIModelPort)? = nil
+        aiModelPort: (any AIModelPort)? = nil,
+        articleFetchPreferences: UserDefaults? = nil
     ) {
         let actualFetcher: @Sendable (Feed, Bool) async throws -> FeedFetchResult
         if let customFeedFetcher {
@@ -568,6 +574,7 @@ public final class AppStore: ObservableObject {
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         self.persistenceURL = tempDir.appendingPathComponent("library.json")
         self.shouldPersistAISettings = false
+        self.articleFetchPreferences = articleFetchPreferences
         let sqliteURL = tempDir.appendingPathComponent("library.sqlite")
 
         do {
@@ -615,6 +622,7 @@ public final class AppStore: ObservableObject {
         appTheme = AppTheme(rawValue: rawTheme) ?? .system
         readerAppearance = Self.loadReaderAppearance(from: preferences)
         articleRetentionPolicy = preferences.string(forKey: PreferenceKey.articleRetentionPolicy).flatMap(ArticleRetentionPolicy.init(rawValue:)) ?? .sixMonths
+        self.automaticallyFetchArticleContent = articleFetchPreferences?.object(forKey: PreferenceKey.automaticallyFetchArticleContent) as? Bool ?? true
         aiSettings = AISettings.migrated(from: testDatabase.llmConfiguration)
         llmConfiguration = testDatabase.llmConfiguration
 
@@ -2618,6 +2626,8 @@ public final class AppStore: ObservableObject {
         for entry: Entry,
         policy: ArticlePreparationPolicy = .foregroundRefresh
     ) async -> PreparedArticle {
+        let allowsAutomaticFetch = automaticallyFetchArticleContent
+        let effectivePolicy: ArticlePreparationPolicy = allowsAutomaticFetch ? policy : .storedContent
         let fingerprint = PreparedArticleMemoryCache.contentFingerprint(for: entry)
         if let memoized = preparedArticleMemoryCache.article(for: entry.id, contentFingerprint: fingerprint) {
             return memoized
@@ -2635,9 +2645,13 @@ public final class AppStore: ObservableObject {
             entry: entry,
             cached: cached,
             feed: feed,
-            policy: policy,
+            policy: effectivePolicy,
             feedLanguageHints: (try? autoTranslationRepository.languageHints(entry: entry)) ?? []
         )
+        // 设置切换期间的旧请求不得写回或展示其结果；按最新策略重新准备。
+        if allowsAutomaticFetch != automaticallyFetchArticleContent {
+            return await prepareArticle(for: entry, policy: policy)
+        }
         let prepared = result.prepared
         var permitsMemoryCaching = true
         if let updatedCache = result.updatedCache, !Task.isCancelled {
@@ -4158,6 +4172,14 @@ public final class AppStore: ObservableObject {
         guard appTheme != theme else { return }
         appTheme = theme
         UserDefaults.standard.set(theme.rawValue, forKey: PreferenceKey.appTheme)
+    }
+
+    public func setAutomaticallyFetchArticleContent(_ enabled: Bool) {
+        guard automaticallyFetchArticleContent != enabled else { return }
+        neighborPrefetchTask?.cancel()
+        preparedArticleMemoryCache.removeAll()
+        automaticallyFetchArticleContent = enabled
+        articleFetchPreferences?.set(enabled, forKey: PreferenceKey.automaticallyFetchArticleContent)
     }
 
     public func setArticleRetentionPolicy(_ policy: ArticleRetentionPolicy) {

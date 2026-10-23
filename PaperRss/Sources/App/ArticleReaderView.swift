@@ -380,6 +380,9 @@ struct ArticleReaderView: View {
             guard let signal, signal.entryID == entry.id else { return }
             articleReloadToken += 1
         }
+        .onChange(of: store.automaticallyFetchArticleContent) { _, _ in
+            articleReloadToken += 1
+        }
         .onChange(of: isReaderCollapsed) { _, collapsed in
             if collapsed {
                 // 收起后旧文档随时可能被重新揭示；先盖住，等目标文档首帧上屏再揭开。

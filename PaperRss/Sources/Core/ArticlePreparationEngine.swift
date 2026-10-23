@@ -3,6 +3,8 @@ import Foundation
 public enum ArticlePreparationPolicy: Sendable {
     case foregroundRefresh
     case localOnly
+    /// 用户关闭自动抓取：使用最佳已有正文，不升级或回写磁盘缓存。
+    case storedContent
 }
 
 public enum ArticlePreparationCacheState: Sendable, Equatable {
@@ -75,6 +77,15 @@ public final class ArticlePreparationEngine: Sendable {
         // 2. 准备 Cache 候选
         let cacheCandidate = prepareCacheCandidate(cached, entry: entry)
         let cacheNeedsRefresh = cached.map(cacheRequiresRefresh) ?? false
+
+        if policy == .storedContent {
+            let candidate = pickBestLocal(feedCandidate, cacheCandidate)
+            return ArticlePreparationResult(
+                prepared: candidate?.toPreparedArticle() ?? makeFallbackArticle(for: entry),
+                updatedCache: nil,
+                cacheState: candidate?.source == .cache && cacheNeedsRefresh ? .staleFallback : .current
+            )
+        }
 
         // 相邻文章预取严格保持本地：旧缓存可作为离线兜底展示，但不得升级、
         // 回写或触发网页请求，也不能被上层写入 PreparedArticleMemoryCache。

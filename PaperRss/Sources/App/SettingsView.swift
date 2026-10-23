@@ -2911,6 +2911,23 @@ struct SettingsView: View {
 
     private var refreshSettings: some View {
         VStack(alignment: .leading, spacing: 20) {
+            settingsGroup(
+                I18N.shared.localized("文章正文", "Article Content"),
+                info: I18N.shared.localized(
+                    "关闭后，阅读与 AI 使用订阅源正文或已有缓存，不自动抓取原网页全文。图片仍可能联网加载，也可手动重新抓取正文。",
+                    "When off, reading and AI use feed content or cached articles without automatically fetching the original page. Images may still load online, and you can manually fetch the article again."
+                )
+            ) {
+                settingsRow(I18N.shared.localized("自动抓取网页全文", "Automatically Fetch Full Articles")) {
+                    Toggle(I18N.shared.localized("自动抓取网页全文", "Automatically Fetch Full Articles"), isOn: Binding(
+                        get: { store.automaticallyFetchArticleContent },
+                        set: { store.setAutomaticallyFetchArticleContent($0) }
+                    ))
+                    .labelsHidden()
+                    .accessibilityIdentifier("settings.automaticallyFetchArticleContent")
+                }
+            }
+
             settingsGroup(I18N.shared.localized("订阅刷新", "Feed Refresh")) {
                 settingsRow("打开应用时自动刷新") {
                     Toggle(I18N.localized("打开应用时自动刷新"), isOn: Binding(

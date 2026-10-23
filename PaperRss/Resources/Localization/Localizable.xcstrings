@@ -1,6 +1,36 @@
 {
   "sourceLanguage" : "zh-Hans",
   "strings" : {
+  "文章正文": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Article Content"
+        }
+      }
+    }
+  },
+  "自动抓取网页全文": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Automatically Fetch Full Articles"
+        }
+      }
+    }
+  },
+  "关闭后，阅读与 AI 使用订阅源正文或已有缓存，不自动抓取原网页全文。图片仍可能联网加载，也可手动重新抓取正文。": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "When off, reading and AI use feed content or cached articles without automatically fetching the original page. Images may still load online, and you can manually fetch the article again."
+        }
+      }
+    }
+  },
   "同步未读文章正文": {
     "localizations": {
       "en": {
