@@ -78,7 +78,13 @@ final class ICloudCloudResidueReviewTests: XCTestCase {
         ]
         try repository.persistEngineState(Data([1, 2, 3]))
         let before = try scope()
-        let result = try await scan([metadata(zones: current + old + legacy + [malformed] + unrelated + current, legacy: true)])
+        var zones: [CKRecordZone.ID] = current
+        zones.append(contentsOf: old)
+        zones.append(contentsOf: legacy)
+        zones.append(malformed)
+        zones.append(contentsOf: unrelated)
+        zones.append(contentsOf: current)
+        let result = try await scan([metadata(zones: zones, legacy: true)])
         XCTAssertTrue(result.isComplete)
         XCTAssertFalse(result.didChangeDuringReview)
         XCTAssertEqual(result.rootStatus, .ready)
