@@ -69,6 +69,7 @@ let package = Package(
                 "reader-emoji-image.test.mjs",
                 "reader-toc.test.mjs",
                 "repository-policy.test.mjs",
+                "pr-policy.test.mjs",
                 "selection-assistant-sync.test.mjs",
                 "sparkle-local-real-upgrade.test.mjs",
                 "sparkle-publish-dry-run.test.mjs",

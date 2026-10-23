@@ -7,7 +7,7 @@
 | 脚本 | 作用 | 依赖 | 触发 |
 | --- | --- | --- | --- |
 | `scripts/build-support.py` | 常规构建与测试共用执行器：泳道锁（app/tests）、超期缓存回收、报告轮转 | 无 | 被常规构建 / 测试入口复用；独立 WebKit 探针除外 |
-| `scripts/verify.sh` | 分级验证：`--core` 仅 Core；`--feature` App 子集；`--filter <名>` 指定回归；无参数或 `--all` 全 Swift + Web + build + diff，默认关闭可见窗口；`--gui [过滤器]` / `--diagnostics` 显式窗口专项；另有 `--web`、`--build` 与三个 WebKit 探针入口 | `build-support.py`、swift、xcodebuild、node | 手动 / Agent / 发布构建；当前 CI 未调用 |
+| `scripts/verify.sh` | 分级验证：`--core` 仅 Core；`--feature` App 子集；`--filter <名>` 指定回归；无参数或 `--all` 全 Swift + Web + build + diff，默认关闭可见窗口；`--gui [过滤器]` / `--diagnostics` 显式窗口专项；另有 `--web`、`--build` 与三个 WebKit 探针入口 | `build-support.py`、swift、xcodebuild、node | 手动 / Agent / 发布构建；PR CI 调用 --core / --web |
 | `scripts/dev.sh` | 编译并拉起 macOS App；`--icloud` 选择 CloudKit Development 签名并自动 provisioning；`--build-only` 只构建、不启动或关闭实例；`--isolated [目录]` 隔离本机数据和构建产物、保留日常实例，但仍共享桌面且不能与 `--icloud` 合用 | `build-support.py --lane app` | 手动交互 / 显式调试；构建检查用 `--build-only` |
 | `scripts/clean.sh` | 预览回收构建缓存；`--apply` 持锁执行，`--keep-days N` 调固定根保留期 | `build-support.py --clean` | 手动；与构建入口的自动回收同逻辑 |
 
@@ -29,6 +29,7 @@
 
 | 脚本 | 作用 | 依赖 | 触发 |
 | --- | --- | --- | --- |
+| `scripts/check-pr.mjs` | PR 正文结构、图片链接形态与 base/head 差异检查；本地夹具 `node --test Tests/pr-policy.test.mjs` | Node、Git | PR CI / 手动，读取事件 JSON |
 | `scripts/test.sh` | 启动隔离数据的“新用户”实例（`build/FreshLaunchTest`），仍共享桌面；`--skip-build` 复用上次构建 | `build-support.py --lane app` | 手动（首启 / 新用户验收） |
 | `scripts/test-mathjax-webkit.sh` | MathJax Tier3 探针（拉起 WebKit） | Xcode | `verify.sh --mathjax-webkit` 或手动 |
 | `scripts/test-highlight-webkit.sh` | 代码高亮 Tier3 探针 | Xcode | `verify.sh --highlight-webkit` 或手动 |
@@ -92,7 +93,8 @@ release.sh ──► verify.sh --all
 
 | 工作流 | 触发 | 执行 |
 | --- | --- | --- |
+| `pr-checks.yml` | 面向 main 的 PR 创建、更新、重开、正文编辑、就绪 | 规范检查、Web/Core 实测及始终汇总的 PR gate |
 | `deploy-pages.yml` | push `main` 且改动 `website/**`、本工作流或赞赏预览脚本 / 依赖；每 12 小时 cron；手动 | 更新 stars / 赞赏预览后部署 Pages，并同步官网服务器 |
 | `sync-release-server.yml` | 正式 Release 发布（非 prerelease）自动触发；手动 | 经 SSH 同步发布服务器资产 |
 
-这两个 CI 工作流负责部署与分发，没有执行 `verify.sh`。它们运行成功不能替代代码回归或发布候选的交互验收。
+deploy-pages 与 sync-release-server 两个 CI 工作流负责部署与分发，没有执行 `verify.sh`。它们运行成功不能替代代码回归或发布候选的交互验收。
