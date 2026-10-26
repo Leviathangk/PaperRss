@@ -1,5 +1,21 @@
 # 更新记录 / Changelog
 
+## v1.5.0-beta.4 · Build 45 · 2026-10-27
+
+本次 Beta 新增可关闭自动全文抓取的设置项，并修复 Kimi 官方接口温度参数与 iCloud 本地快照稳定性；推荐 Beta 通道用户更新测试，稳定版仍为 v1.4.5。
+
+- **关闭自动全文抓取**：设置中可关闭「自动抓取全文网页」；关闭后仅使用订阅源/缓存正文，手动重新抓取仍可用；默认保持开启。[#42](https://github.com/ohmyangboy/PaperRss/issues/42)
+- **Kimi 温度参数**：对拒绝 temperature 的 Kimi 官方接口省略该参数，避免请求失败。
+- **iCloud 本地快照**：修复本地副本快照 JSON 规范化与摘要列绑定，提升同步稳定性。
+
+---
+
+This Beta adds a setting to disable automatic full-article web fetch, and fixes Kimi official-endpoint temperature handling plus iCloud local-copy snapshot stability. Recommended for Beta channel users; the stable release remains v1.4.5.
+
+- **Disable automatic full-article fetch**: Settings can turn off automatic full-article web fetching. When off, use feed/cache content only; manual refetch still works. Default remains on. [#42](https://github.com/ohmyangboy/PaperRss/issues/42)
+- **Kimi temperature**: Omit temperature on official Kimi endpoints that reject it, avoiding request failures.
+- **iCloud local snapshots**: Fix local-copy snapshot JSON canonicalization and digest column binding for more stable sync.
+
 ## v1.5.0-beta.3 · Build 44 · 2026-10-14
 
 本次 Beta 改进双语翻译排版、滚动更新与请求调度，并补齐设置页键盘导航；推荐 Beta 通道用户更新测试，稳定版仍为 v1.4.5。
