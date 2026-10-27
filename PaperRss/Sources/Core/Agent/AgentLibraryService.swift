@@ -5,7 +5,7 @@ import PaperRssAgentProtocol
 #endif
 
 /// One app-owned authorization session. No database creation, refresh or network commands.
-/// Production transport/pairing is deliberately not connected in this spike.
+/// The App creates one service per authenticated IPC connection and revokes it on disconnect.
 public actor AgentLibraryService: AgentBridge {
     private let database: LibraryDatabase
     private let provider: LocalAccountProvider
@@ -122,10 +122,12 @@ public actor AgentLibraryService: AgentBridge {
     private func status(_ a: [String: AgentJSON]) throws -> AgentJSON {
         guard policy.enabled else {
             return .object(["version": .string("agent-spike-1"), "enabled": .bool(false),
-                            "paired": .bool(false), "accounts": .array([])])
+                            "paired": .bool(false), "pair_state": .string("disabled"),
+                            "transport": .string("none"), "accounts": .array([])])
         }
         var data: [String: AgentJSON] = [
             "version": .string("agent-spike-1"), "enabled": .bool(true), "paired": .bool(false),
+            "pair_state": .string("app_internal"),
             "transport": .string("in_process_spike"),
             "accounts": .array(policy.accountIDs.sorted().map { .object([
                 "account_id": .string($0), "capabilities": .array(

@@ -23,11 +23,16 @@ public struct AgentFixtureBridge: AgentBridge {
         guard enabled else { throw AgentFailure("NOT_ENABLED", "Set PAPERRSS_AGENT_ENABLED=1 for the explicit fixture session.") }
         try AgentMCPTools.validate(name: tool, arguments: arguments)
         if tool == "paperrss_status" {
+            // Keep fixture status keys aligned with App/Core overlays so clients
+            // can share one parser (Bro steer: pair_state / paired / transport).
             return .object(["version": .string("0.1.0-spike"), "enabled": .bool(true),
-                            "pair_state": .string("fixture_only"), "fixture": .bool(true),
+                            "paired": .bool(false), "pair_state": .string("fixture_only"),
+                            "transport": .string("fixture"), "fixture": .bool(true),
                             "allowed_accounts": .array([.object(["account_id": .string("fixture-local"),
                                 "capabilities": .array([.string("metadata.read")])])]),
-                            "selections": .array([])])
+                            "accounts": .array([.object(["account_id": .string("fixture-local"),
+                                "capabilities": .array([.string("metadata.read")])])]),
+                            "selections": .array([]), "selection_ids": .array([])])
         }
         if let account = arguments["account_id"]?.stringValue, account != "fixture-local" {
             throw AgentFailure("UNAUTHORIZED", "The fixture grants access only to fixture-local.")

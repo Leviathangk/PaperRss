@@ -1,47 +1,63 @@
-# 本地 Agent / MCP：可编译 spike 验收
+# 本地 Agent / MCP：UDS MVP 验收
 
-2026-10-27，基线 `9360d39`。实现依据是 Oliver 提供的 `documents/research/paperrss-agent-integration-cli-mcp.md` §10–§12；该研究文件目前仅存在主 checkout 的未提交资料中，本 worktree 未修改它。
+2026-10-27；在 `codex/agent-mcp-spike` / `8c78350` 上继续实现。研究依据：只读参考 `documents/research/paperrss-agent-integration-cli-mcp.md` §10–§12，该未跟踪副本不提交。
 
-**这是安全边界和业务核心的技术 spike，尚不能用 MCP 客户端操作真实阅读库。** 交付 Core + 可替换 `AgentBridge` + stdio helper；生产 UDS、配对、确认界面与签名打包留待下一步。未做 #57 滚动标已读。没有 HTTP 端口、launchd、云连接、自动抓取、导出或自动删文。
+**helper 不带 `--fixture` 时已接入 App 的 Unix domain socket；App 使用自己已打开的 LibraryDatabase 提供查询。** 默认关闭。自动化使用隔离库和真实 socket，不等同于日常库、GUI 客户端或签名安装包验收。当前交付优先满足本地账户的 status、Feed 列表、文章列表、元数据及显式授权的已有正文。
 
-## 已实现与责任边界
+## 数据与安全边界
 
-- `PaperRssAgentProtocol` 位于 Core/AgentProtocol，只依赖 Foundation，定义 JSON DTO 和桥接口。helper 依赖此模块及 MCP 模块，**不依赖 PaperRssCore/SQLite/CloudKit**，没有数据库路径、RSS 凭据和 AI Key。
-- `AgentLibraryService` 由 App 注入已初始化的 LibraryDatabase，复用 LocalAccountProvider、TimelineQueryService、ArticleStateRepository、ArticlePreparationEngine。不会自行创建库或启动同步。
-- Core 支持允许账户内的 Feed 分页/未读计数、unread/starred/selection 元数据、Feed/时间/标题与截断摘要筛选、单篇详情。没有全文搜索、刷新、隐式已读；正文、标题、摘要均标记不可信。
-- 正文必须经过 App-only `authorizeContent` 钩子生成 selection（最多 20 篇，15 分钟）；每次一篇，最多 20,000 Unicode scalar，默认 8,000。固定 `.storedContent`，不抓网页，不写缓存。标题/摘要/正文共用默认 100,000 字符的会话账本；每分钟最多 60 个业务调用。分页最多 50 条。
-- Core 状态命令先冻结 ID/前置状态，App-only `approve` 签发 approval，再单事务校验并设置 read/starred。过期、错误审批、冲突、数据库失败不返回成功；相同幂等键重试返回原 receipt。只支持 local 类型账户，iCloud/FreshRSS/Miniflux 均拒绝写入；receipt 的 `sync=not_applicable` 不冒充远端同步成功。
-- `AgentBridgeController.shared` 在 App 初始化挂接一次，不在窗口出现时创建。真实 App 会话仅允许本地未读元数据和显式 selection 内容，**暂不启用 state.write**。确认钩子未接入 UI，外部工具不能签发审批。
-- 10 个 MCP 工具均注册、严格校验参数（含 additionalProperties:false）。三个 Feed 写工具是明确的可编译契约 stub：Core 返回 `UNSUPPORTED`，fixture 返回 `CONFIRMATION_REQUIRED`，均不执行写入、不能完成审批。工具执行结果包含 `api_version: "1"`，失败带 `isError: true`、结构化错误码；不会吞掉数据库错误后假装成功。
+- helper 仅依赖 `PaperRssAgentProtocol`、`PaperRssAgentMCP`；不链接 PaperRssCore、SQLite、CloudKit，不持有 RSS 凭据或 AI Key。App → LibraryDatabase 是唯一数据所有者。
+- 默认目录为 `/tmp/paperrss-agent-$(id -u)`（macOS `/tmp` 指向 `/private/tmp`），socket 为该目录的 `bridge.sock`。目录 0700，socket、`token`、`owner`、`state` 文件 0600；检查当前 UID、文件类型、权限，拒绝符号链接凭据与不安全目录。双端检查 Unix peer UID。
+- 开启后 App 生成随机 token；helper 从同目录读取，token 不进 argv、MCP 配置或日志。握手包含协议版本，App 返回实例 ID。每次重新开启轮换 token；不支持匿名读取。
+- 这是**当前 macOS 用户范围的信任**，并非代码签名绑定或逐客户端人工配对。同用户能读取 token 的进程也能连接；`--client` 只是标签，不是身份。每个已认证连接独立授权、预算、游标；断开撤销。不要把任意同用户进程视为已隔离的安全主体。
+- App 初始化库成功后取得 `owner` 排他锁。OFF 保留 owner 锁和 disabled 状态，移除数据 listener/token，并撤销已有会话；进程退出释放锁。helper 据此区分 `NOT_ENABLED` 与 `APP_NOT_RUNNING`。崩溃留下的 socket 只有在持有 owner 锁且确认无活跃 listener 后才清理；拒绝覆盖活跃实例。OFF 只留下状态文件，不提供库查询端口。
+- UDS 采用长度前缀 JSON；请求上限 64 KiB、响应上限 1 MiB，有限连接数、15 秒阻塞读写超时；认证后空闲等待不主动断开，阻塞 I/O 在后台队列。stdio stdout 只输出 JSON-RPC。无 TCP/HTTP 端口、launchd、云连接、自动打开 App 或全库导出。
+- 元数据允许本地账户 unread/starred/selection；正文最多选 20 篇，每篇最多 20,000 字符，默认 8,000，selection 有效 15 分钟。每会话共享默认 100,000 字符预算及每分钟 60 个业务调用。正文仅用已存内容，不抓网页、不写缓存、不隐式标已读。文章文本全部视为不可信输入。
+- 真实 App 的 state.write 仍关闭，Feed CRUD 为 stub；未实现 #57 滚动标已读。本轮没有更改同步、保留或清理策略。
 
-## 开启方式与构建
+## 构建与启用
 
-默认两个入口都关闭，不自动安装任何系统服务或修改客户端配置。
-
-**独立 helper 冒烟**使用环境变量 `PAPERRSS_AGENT_ENABLED=1`，仅对本次进程生效。必须加 `--fixture` 才能读纯内存的合成数据；无 fixture 时即使启用也只会返回 `APP_NOT_RUNNING`（说明 IPC 尚未实现），绝不退回直接开库。
+以下均在本 worktree 执行。构建本身不启动 App：
 
 ```sh
-cd /absolute/path/to/PaperRss
+cd /Users/yangbukun/.codex/worktrees/b9dd/PaperRss
 swift build --product paperrss-agent
-PAPERRSS_AGENT_ENABLED=1 .build/debug/paperrss-agent serve --stdio --fixture --client oliver-qa
+./scripts/dev.sh --build-only
 ```
 
-stdio stdout 只输出协议消息。没有额外 Node/Python runtime 依赖。使用最小手写 JSON-RPC，避免 spike 新增 MCP SDK 依赖；支持 initialize、ping、tools/list、tools/call、cancelled 通知，64 KiB 请求帧上限和并发上限。协议版本协商覆盖 2025-11-25、2025-06-18、2024-11-05；未宣称完整 MCP conformance。客户端应发送 `notifications/initialized`；当前服务端兼容地容忍 initialize 后、该通知前的工具调用，不主动向客户端发请求。
+原生 App：`build/Build/Products/Debug/PaperRss.app`。如果本机 Xcode 签名/构建环境受限，可用 `swift build --product PaperRssDesktop`，然后使用 `.build/debug/PaperRssDesktop` 做 Debug QA；这不证明原生 bundle 签名/分发成功。
 
-**App 内部 enable gate** 是 `UserDefaults` 的 `PaperRss.agentMCPEnabled`，缺省 false。隔离测试可向独立 defaults suite 写 true；隔离 App 手动 QA 可用启动参数 `-PaperRss.agentMCPEnabled YES`。这只打开进程内桥接 seam，**不会让外部 helper 连通**。实际传输接入前需要完成配对和确认 UI。关闭 flag 后每次桥调用拒绝访问，`stop()` 撤销会话。这里没有执行上述 App 启动，也没有改写日常 App 偏好。
+启动真实库实例前正常退出旧 PaperRss，并按 [开发数据备份](../../.agents/docs/dev-data-backup.md) 保存一致快照。不要同时启动第二个使用同一库的 App。App 正常初始化本身可能执行原有迁移、同步和刷新，因此不能把“Agent 查询只读”理解成整个 App 启动只读。
 
-## 客户端 stdio 配置（仅合成数据 QA）
+本次进程启用（推荐 QA，不保存全局偏好）：
 
-将 command 换成这次构建产物的绝对路径；不要填写数据库路径或任何 Key。以下配置由 Oliver 自行加入本地客户端，本文不安装配置。
+```sh
+./build/Build/Products/Debug/PaperRss.app/Contents/MacOS/PaperRss \
+  -PaperRss.agentMCPEnabled YES
+# SwiftPM 备选：
+# .build/debug/PaperRssDesktop -PaperRss.agentMCPEnabled YES
+```
 
-Claude Desktop 的开发者配置 `claude_desktop_config.json` 和 Cursor 的用户级 `mcp.json` 使用：
+持久偏好方式（原生 bundle ID）：
+
+```sh
+defaults write com.yangbukun.PaperRss PaperRss.agentMCPEnabled -bool YES
+```
+
+退出再启动本次构建产物。关闭时退出，再以 `-PaperRss.agentMCPEnabled NO` 启动；或 `defaults write ... -bool NO` 后重启。启动参数优先于持久 defaults；外部 `defaults write` 的跨进程实时通知不作为本轮保证。App 内同一 defaults 对象变更会驱动 listener 关闭，每次业务调用也再次检查开关。
+
+**helper 还有独立进程开关** `PAPERRSS_AGENT_ENABLED=1`，两个开关都必需。helper 不会自动打开 App。`PAPERRSS_AGENT_SOCKET_DIR` 仅供隔离 socket 冒烟测试覆盖 helper 目录；日常 QA 不设置，App 使用固定默认目录。
+
+## 客户端配置（真实 App，无 --fixture）
+
+将 command 换成本 worktree 编译产物的绝对路径。Claude Desktop 开发者配置 `claude_desktop_config.json` / Cursor `mcp.json` 示例：
 
 ```json
 {
   "mcpServers": {
-    "paperrss-spike": {
-      "command": "/absolute/path/to/PaperRss/.build/debug/paperrss-agent",
-      "args": ["serve", "--stdio", "--fixture", "--client", "oliver-qa"],
+    "paperrss-local": {
+      "command": "/Users/yangbukun/.codex/worktrees/b9dd/PaperRss/.build/debug/paperrss-agent",
+      "args": ["serve", "--stdio", "--client", "oliver-qa"],
       "env": {"PAPERRSS_AGENT_ENABLED": "1"}
     }
   }
@@ -51,34 +67,69 @@ Claude Desktop 的开发者配置 `claude_desktop_config.json` 和 Cursor 的用
 Codex 本地 `config.toml` 示例：
 
 ```toml
-[mcp_servers.paperrss_spike]
-command = "/absolute/path/to/PaperRss/.build/debug/paperrss-agent"
-args = ["serve", "--stdio", "--fixture", "--client", "oliver-qa"]
+[mcp_servers.paperrss_local]
+command = "/Users/yangbukun/.codex/worktrees/b9dd/PaperRss/.build/debug/paperrss-agent"
+args = ["serve", "--stdio", "--client", "oliver-qa"]
 
-[mcp_servers.paperrss_spike.env]
+[mcp_servers.paperrss_local.env]
 PAPERRSS_AGENT_ENABLED = "1"
 ```
 
-配置字段参考 [Cursor 官方 MCP 文档](https://prod.cursor.com/docs/mcp)、[OpenAI 官方 Codex MCP 文档](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)。[Claude Desktop 当前官方说明](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop)主要介绍扩展安装；上面的 JSON 是手动开发者配置，需在实际客户端版本核验。尚未运行三个 GUI 客户端，不把示例当作客户端兼容性已验收。
+保存后重新连接对应 MCP server。这里没有修改任何全局客户端配置，也没有验收三个客户端 GUI。stdio 支持 initialize、ping、tools/list、tools/call、cancelled 通知；工具数 10，失败包含 `isError: true` 与结构化错误码。协议版本覆盖 2025-11-25、2025-06-18、2024-11-05；不是完整 MCP conformance 声明。
 
-## Oliver 冒烟清单
+## Debug 正文授权路径
 
-1. 构建后配置 helper，工具列表应恰好 10 项。调用 `paperrss_status {}`，应显示 fixture、允许账户 `fixture-local`、只读元数据能力。
-2. `paperrss_list_feeds {"account_id":"fixture-local"}` 返回一个合成 Feed；`paperrss_list_articles {"account_id":"fixture-local","scope":"unread","query":"Swift","limit":20}` 返回一个合成文章。
-3. `paperrss_get_article {"account_id":"fixture-local","article_id":"fixture-article"}` 没有正文；伪造 selection 调用 get_content 必须 UNAUTHORIZED；写工具返回错误，不产生真实操作。
-4. 加未知字段、limit=51、scope=all、重复 article_ids，应 INVALID_ARGUMENT；换账户应 UNAUTHORIZED。
-5. 去掉环境变量并重启 helper，应 NOT_ENABLED。保留环境变量但移除 --fixture，应 APP_NOT_RUNNING，任何时候都不读取日常库。
-6. Core 的审批→原子提交→冲突/幂等闭环由下面隔离库测试验证；不能以 fixture 成功替代真实 App/双窗口/同步验收。
+正式确认 UI 尚未接入。本轮提供**App 侧、仅 Debug、显式篇目、一次启动一次**的 QA consent：
 
-## 自动化证据
+1. 先用 metadata 工具取得真实文章 ID，人工检查并选 1–20 篇。正文可能被客户端送到它配置的模型服务；仅选择同意外发的篇目。
+2. 断开所有测试 MCP 客户端，正常退出 App，再在终端启动 App，指定所选 ID：
+
+```sh
+./build/Build/Products/Debug/PaperRss.app/Contents/MacOS/PaperRss \
+  -PaperRss.agentMCPEnabled YES \
+  --agent-qa-allow-content-egress \
+  --agent-qa-content-ids 'ARTICLE_ID_1,ARTICLE_ID_2'
+```
+
+SwiftPM 备选将可执行文件替换为 `.build/debug/PaperRssDesktop`。不能把这些 App 参数放到 helper args。
+
+3. 启动后 15 分钟内只连接预期的一个 MCP helper，首先调用 `paperrss_status {}`。App 将固定篇目授予第一个发起业务调用的连接；读取返回的 `selection_ids[0]`。该 selection 自签发起有效 15 分钟，不自动续期。
+4. 使用同一个 MCP 连接调用 `paperrss_get_content`，传入 account_id、article_id、selection_id。selection 不跨连接共享；只读列表不会标已读。未指定双重 QA 参数、Release 构建、任意伪造 selection 均不会获得正文授权。
+5. 关闭 App 开关、断开该 helper 或退出 App 都会撤销授权；重新连接不会自动领取第二份 QA grant。要重新授权须重新人工启动 App。验证完退出并去掉上述 QA 参数，勿保存为日常启动配置。
+
+这条路径没有 MCP 自批准工具。它是临时 QA 入口：首个连接领取意味着测试时必须控制同用户其他 helper；正式版本仍需要可见的逐客户端配对、篇目确认和撤销 UI。
+
+## 验收说明（可直接发 Bro / Oliver）
+
+本轮已补上 helper → Unix socket → App-owned library 的连接。请用本分支 Debug App 和本分支 helper；MCP args **不带 `--fixture`**。先启动 App `-PaperRss.agentMCPEnabled YES`，MCP 配置环境 `PAPERRSS_AGENT_ENABLED=1`。
+
+1. `paperrss_status {}`：应返回 `enabled: true`、`paired: true`、`transport: "unix_socket"`，从 `accounts` 读取允许的本地 account_id（通常 `local-default`）。不能出现 `fixture: true`。
+2. `paperrss_list_feeds {"account_id":"local-default","limit":20}`：返回 App 本地账户的真实订阅和计数。只有远端/iCloud账户时本地列表可能为空；本轮不开放这些账户。
+3. `paperrss_list_articles {"account_id":"local-default","scope":"unread","limit":20}`：与 App 的本地未读文章核对。可加 feed_id、since、query；query 只搜索标题/摘要。再试 scope=starred。列表响应不含正文，不改变已读。
+4. 从列表取真实 ID，`paperrss_get_article {"account_id":"local-default","article_id":"REAL_ID"}`：核对标题、状态和 content_available；无正文。超出 unread/starred/selection 范围的已读未星标文章应 UNAUTHORIZED。
+5. 按上一节从 **App 终端参数**授权所选篇目，再从 status 取 selection_id，调用 `paperrss_get_content {"account_id":"local-default","article_id":"REAL_ID","selection_id":"STATUS_RETURNED_ID","max_chars":8000}`。应返回已存文本；检查原文章已读状态没变。没有已有正文时可能报内容不可用，不会隐式抓网页。
+6. 同一连接伪造 selection 必须 UNAUTHORIZED；业务错误后有效 selection 仍可使用。另开 helper 不能复用该 selection。
+7. helper 不设置启用环境变量 → NOT_ENABLED；App 运行但 flag OFF → NOT_ENABLED；App 退出/无 listener/崩溃残留 socket → APP_NOT_RUNNING。再次打开 App 后可重新连接；旧 selection 失效。
+8. 检查目录 0700、socket/token 0600（只查看权限，不把 token 内容贴群）。普通关闭 App 后应移除 socket/token；owner 文件可能保留但不再持锁。再次启动不得覆盖其它活跃实例。
+9. Feed 写工具应明确 UNSUPPORTED；真实 App 的状态写工具应拒绝，不把 Core fixture 的写入测试当成真实写入能力。
+
+离线 smoke 仍支持：
+
+```sh
+PAPERRSS_AGENT_ENABLED=1 .build/debug/paperrss-agent serve --stdio --fixture --client offline-qa
+```
+
+fixture 是纯合成数据；不能用它代替上面真实库验收。验收反馈请包含构建提交、客户端版本、调用参数（不含 token/正文秘密）、结构化错误码。
+
+## 自动化与当前交付证据
 
 常规入口：
 
 ```sh
-./scripts/verify.sh --filter 'AgentLibraryServiceTests|AgentMCPTests|AgentBridgeControllerTests'
+./scripts/verify.sh --filter 'AgentLibraryServiceTests|AgentMCPTests|AgentBridgeControllerTests|AgentIPCTests|AgentIPCIntegrationTests'
 ```
 
-本次运行环境限制写入默认 Clang 缓存且不允许 SwiftPM 嵌套 sandbox，因此通过同一报告/锁入口运行等价命令（外层工作区沙箱仍有效）：
+当前执行环境默认 Clang 缓存位于沙箱外，普通入口在 manifest 编译阶段失败；使用同一报告/锁入口，将缓存限制在本 worktree，并关闭 SwiftPM 内层 sandbox（外层权限仍有效）：
 
 ```sh
 CLANG_MODULE_CACHE_PATH="$PWD/build/agent-module-cache" \
@@ -86,29 +137,49 @@ SWIFTPM_MODULECACHE_OVERRIDE="$PWD/build/agent-module-cache" \
 PAPERRSS_RUN_GUI_TESTS=0 PAPERRSS_RUN_MAGAZINE_DIAGNOSTICS=0 \
 python3 scripts/build-support.py --lane tests --temporary -- \
   swift test --disable-sandbox --scratch-path "$PWD/.build" --skip-update \
-  --filter 'AgentLibraryServiceTests|AgentMCPTests|AgentBridgeControllerTests'
+  --filter 'AgentLibraryServiceTests|AgentMCPTests|AgentBridgeControllerTests|AgentIPCTests|AgentIPCIntegrationTests'
 ```
 
-测试使用临时 SQLite fixture，不启动真实 GUI App。完整日志在 `build/reports/`，最终执行结果见下方交付记录。
+本轮最终结果（2026-10-27）：
 
-## 相对调研 MVP 的已知缺口
+| 项目 | 结果 | 证据 |
+| --- | --- | --- |
+| SwiftPM Debug 编译 | 成功，含 App、helper 和全部新测试 | `build/reports/run-vtu6ta2l.log` |
+| 可执行的无 listener 测试子集 | **31 通过 / 0 失败 / 0 跳过** | `run-vtu6ta2l.log` |
+| 最终完整相关测试（48 项） | **31 通过 / 17 失败 / 0 跳过**；17 项均在 UDS bind/setup 被环境阻断 | `build/reports/run-93rrh250.log` |
+| helper 真实子进程 smoke | **4 通过 / 0 失败**：helper OFF、无 App、disabled owner、fixture；未证明 socket 往返 | `build/reports/agent-ipc-product-smoke.json` |
+| 独立 UDS 环境探针 | `/tmp`、`/private/tmp`、系统 TMPDIR 均 `EPERM: Operation not permitted` | `build/reports/agent-ipc-sandbox-probe.json` |
+| 原生 Xcode App build | 退出 74：依赖下载被网络环境阻挡；未到宿主代码/签名验收 | `build/reports/run-_eylj8op.log` |
+| diff / Xcode 工程语法 / helper 动态依赖 | 通过；helper 无 SQLite / CloudKit 动态依赖，Package 依赖无 Core | `git diff --check`、`plutil -lint`、`otool -L` |
 
-- **没有真实 IPC/配对/签名 bundle helper/启动安装链路**。App 内确认 UI 和会话管理尚未完成；外部客户端目前只能 smoke 合成只读数据。
-- Feed CRUD 三个写工具为 stub；未实现 URL 重定向/私网源授权，绝不发起 Feed 网络请求。未做到完整业务 MVP。
-- App 实际写入关闭；Core 写入只验证 local 隔离库。无跨设备服务、双窗口并发验收；无撤销或清理保留期，审批 DTO 明确提示读/星标变化可能触发既有保留策略。
-- 前置状态使用现有完整 ArticleStateRecord（含 updatedAt）保守比较：另一字段变更也会冲突，不支持可靠单调 revision/ABA 保证。进入生产需改善字段独立版本。
-- 计划、selection、幂等 receipt 仅保存在同一服务会话内；重启后旧计划不可执行，不提供跨进程崩溃后的持久审计/receipt 恢复。
-- 分页是绑定查询和会话的短期 opaque **live-offset cursor**，不是冻结快照/稳定 keyset；并发增删可能产生遗漏或重复。每次最多扫描 500 候选，未命中时也可能返回可继续扫描的 cursor。
-- 仅允许本地账户；status 能力、配额为单会话。跨客户端全局限额、正式撤销通知、睡眠/升级生命周期还未接入。
-- 隐去 Feed URL，文章 URL 带 userinfo/query/fragment 时拒绝提供。不能自动识别所有 URL path 内秘密，正式对外接入前还需来源级出库策略。文章纯文本可能包含敏感内容；selection 确认需明确“助手可能将其发给自己的模型服务”，并遵守 CONTENT_NOTICE / PRIVACY；本地 stdio 不等于模型处理只在本机。
+31 项通过由 Core 17、MCP 9、原 App gate 1、新 App 直接调用授权 2、IPC OFF/不存在 2 组成。新增 App 直接调用测试使用 App 注入的隔离库，验证实际已有正文和关闭撤销；它们没有经过 socket，不能替代 17 项受阻测试。没有把这些失败改成 skip，也没有绕过沙箱。最初常规入口的缓存失败日志为 `run-mhquqf3y.log`。
 
-## 本次交付记录
+**因此当前结论是“实现和 SwiftPM 编译完成，真实 socket 连通仍待普通本机终端验收”，不是“真实 App MCP MVP 已通过”。** 上述完整过滤器在具有 UDS 权限的终端重新运行后，才可以判断 IPC 往返、认证和生命周期的运行结果。
 
-- 最终 SwiftPM 编译与测试退出码 0：**58 项，0 失败**（Agent Core 17、正文准备引擎 31、App gate 1、MCP 9）。同时编译 PaperRssCore、PaperRssDesktop 和 paperrss-agent。日志：`build/reports/run-rx2h9s9a.log`。
-- 编译产物真实 stdio 子进程 3 场景通过：默认关闭、启用无 IPC、fixture 查询；正常 EOF 退出。日志：`build/reports/agent-mcp-product-smoke.log`。这是协议冒烟，不是 Claude/Cursor/Codex GUI 客户端验收。
-- `git diff --check`、Xcode 工程 plist 语法校验通过。helper 的动态依赖没有 SQLite/CloudKit。
-- Xcode 原生工程构建**未通过环境阶段**：SwiftPM manifest diagnostics 尝试写入沙箱外 `~/Library/Caches/org.swift.swiftpm` 被拒绝；完整日志 `build/reports/run-7kf74x95.log`。不能据 SwiftPM 编译结果声称已验证 Xcode bundle 构建/签名/打包。
-- 没有启动日常 App、打开生产阅读库或执行真实服务写入；没有修改全局 MCP 配置。
-- worktree：`/Users/yangbukun/.codex/worktrees/b9dd/PaperRss`。
-- Git：仍为 **detached HEAD @ 9360d39**；创建 `codex/agent-mcp-spike` 时，共享 `.git` 位于沙箱外，写入 ref lock 被拒绝。因此没有新分支或本地 commit；改动完整保留在本 worktree。未 stage、merge、push、PR、tag 或 release，也未修改其他 worktree。
-- 审阅补丁：`build/reports/agent-mcp-spike.patch`（包括新增文件）；Git 清单与关键绝对路径：`build/reports/agent-mcp-handoff.txt`。在允许写共享 Git 元数据的环境中再创建分支并提交即可，不要清理此 worktree。
+本地提交也受环境限制：精确 `git add` 被拒绝，无法创建共享 `.git/worktrees/PaperRss/index.lock`。未暂存任何文件，HEAD 仍为 `8c78350`；所有源码保留在当前 `codex/agent-mcp-spike` 工作区。研究副本仍 untracked、未 stage。未创建其它 worktree，未 merge/push/PR/tag/release。
+
+交接文件：`build/reports/agent-mcp-ipc-handoff.md`；审阅补丁（含新增源码、排除研究副本）：`build/reports/agent-mcp-ipc.patch`。本轮未启动真实 App GUI、打开日常库或修改全局 MCP 配置。
+
+## 剩余缺口
+
+- 正式配对/确认/撤销 UI、签名 helper bundle、安装与升级链路尚未完成；只验证当前用户 token 信任模型，不保证 Mac App Store sandbox 可用。
+- 真实 App/Claude Desktop/Cursor/Codex GUI 三端尚需按上述步骤人工验收。自动化使用 App 相同 controller/service 和隔离 SQLite 库，不是生产阅读库验收。
+- 只支持本地账户；Feed CRUD、真实状态写入仍未开放。没有跨设备/iCloud/远端同步验收。
+- 会话/selection/游标不持久化；断开或重启失效。预算为每连接，重新连接可获得新预算；正式版需要跨连接全局配额与可见授权管理。
+- 分页是查询/会话绑定的短期 live-offset cursor，非冻结快照；并发增删可能重复或遗漏，每次最多扫描 500 候选。正文现有的会话限量不等于不可绕过的永久出库上限。
+- URL 已过滤 userinfo/query/fragment，但无法识别所有 path 内秘密；正文授权仍需人工审查隐私和内容使用范围。本地传输不等于外部模型处理在本机。
+- 未覆盖睡眠/恢复、升级重启竞争、故意慢速传输的完整压力测试，也未宣称正式生产安全验收完成。
+
+## 普通终端补跑（2026-10-27 22:49 Asia/Shanghai）
+
+Codex `workspace-write` 沙箱曾禁止 Unix socket `bind`（当时完整相关用例 31 通过 / 17 失败）。随后在**普通本机终端**（非 Codex sandbox）补跑：
+
+- UDS bind 探针：`bind_ok=true`
+- `./scripts/verify.sh --filter 'AgentLibraryServiceTests|AgentMCPTests|AgentBridgeControllerTests|AgentIPCTests|AgentIPCIntegrationTests'` → **exit 0**
+- 日志：`build/reports/agent-ipc-unsandboxed-verify.log`
+- 覆盖含真实 temp socket roundtrip、disabled/missing App、token/version 拒绝、stale reclaim、helper product without `--fixture`、App 隔离库正文授权路径等。
+
+status DTO 已对齐：fixture / Core / App overlay 均提供 `paired` + `pair_state` + `transport`（fixture 另带 `fixture=true`；真实 UDS 连接 `transport=unix_socket`、`pair_state=local_user_token`）。
+
+Bro 硬要求（UDS-only 非 fixture、enable gate listen/revoke、0700/0600+peer UID+token、QA-only 受信授权、status 字段统一、研究 `??` 不提交）已并入本轮实现。
+
