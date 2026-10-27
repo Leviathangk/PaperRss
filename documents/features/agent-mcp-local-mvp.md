@@ -140,25 +140,20 @@ python3 scripts/build-support.py --lane tests --temporary -- \
   --filter 'AgentLibraryServiceTests|AgentMCPTests|AgentBridgeControllerTests|AgentIPCTests|AgentIPCIntegrationTests'
 ```
 
-本轮最终结果（2026-10-27）：
+本轮最终结果（2026-10-27 Asia/Shanghai）：
 
 | 项目 | 结果 | 证据 |
 | --- | --- | --- |
-| SwiftPM Debug 编译 | 成功，含 App、helper 和全部新测试 | `build/reports/run-vtu6ta2l.log` |
-| 可执行的无 listener 测试子集 | **31 通过 / 0 失败 / 0 跳过** | `run-vtu6ta2l.log` |
-| 最终完整相关测试（48 项） | **31 通过 / 17 失败 / 0 跳过**；17 项均在 UDS bind/setup 被环境阻断 | `build/reports/run-93rrh250.log` |
-| helper 真实子进程 smoke | **4 通过 / 0 失败**：helper OFF、无 App、disabled owner、fixture；未证明 socket 往返 | `build/reports/agent-ipc-product-smoke.json` |
-| 独立 UDS 环境探针 | `/tmp`、`/private/tmp`、系统 TMPDIR 均 `EPERM: Operation not permitted` | `build/reports/agent-ipc-sandbox-probe.json` |
-| 原生 Xcode App build | 退出 74：依赖下载被网络环境阻挡；未到宿主代码/签名验收 | `build/reports/run-_eylj8op.log` |
-| diff / Xcode 工程语法 / helper 动态依赖 | 通过；helper 无 SQLite / CloudKit 动态依赖，Package 依赖无 Core | `git diff --check`、`plutil -lint`、`otool -L` |
+| SwiftPM / verify 相关测试 | **48 通过 / 0 失败**（Core 17 + App bridge 1 + IPC integration 10 + AgentIPC 11 + MCP 9） | `build/reports/agent-ipc-unsandboxed-verify.log` |
+| Codex sandbox 曾阻断 UDS bind | 当时 31 通过 / 17 失败（环境 EPERM，非逻辑回归） | `build/reports/run-93rrh250.log`、`agent-ipc-sandbox-probe.json` |
+| 普通终端 UDS bind 探针 | `bind_ok=true` | 本机补跑记录 |
+| helper 产品子进程 smoke | 含 without `--fixture` / disabled / missing App / fixture | IPC / product smoke 日志 |
+| 本地 commit | `c32854d`（及文档证据修正 commit，见 git log）在 `codex/agent-mcp-spike`；**未 push** | `git log -1` |
+| 研究副本 | 仍 untracked，未 stage | `documents/research/paperrss-agent-integration-cli-mcp.md` |
 
-31 项通过由 Core 17、MCP 9、原 App gate 1、新 App 直接调用授权 2、IPC OFF/不存在 2 组成。新增 App 直接调用测试使用 App 注入的隔离库，验证实际已有正文和关闭撤销；它们没有经过 socket，不能替代 17 项受阻测试。没有把这些失败改成 skip，也没有绕过沙箱。最初常规入口的缓存失败日志为 `run-mhquqf3y.log`。
+**结论：** helper ↔ App UDS IPC 在普通本机自动化已跑通（隔离库 + temp socket）。这仍**不等于**日常生产库 + Claude/Cursor/Codex GUI 三端已验收；请按上方「验收说明」人工走真实库。未 merge/push/PR/tag/release。
 
-**因此当前结论是“实现和 SwiftPM 编译完成，真实 socket 连通仍待普通本机终端验收”，不是“真实 App MCP MVP 已通过”。** 上述完整过滤器在具有 UDS 权限的终端重新运行后，才可以判断 IPC 往返、认证和生命周期的运行结果。
-
-本地提交也受环境限制：精确 `git add` 被拒绝，无法创建共享 `.git/worktrees/PaperRss/index.lock`。未暂存任何文件，HEAD 仍为 `8c78350`；所有源码保留在当前 `codex/agent-mcp-spike` 工作区。研究副本仍 untracked、未 stage。未创建其它 worktree，未 merge/push/PR/tag/release。
-
-交接文件：`build/reports/agent-mcp-ipc-handoff.md`；审阅补丁（含新增源码、排除研究副本）：`build/reports/agent-mcp-ipc.patch`。本轮未启动真实 App GUI、打开日常库或修改全局 MCP 配置。
+交接文件：`build/reports/agent-mcp-ipc-handoff.md`；审阅补丁：`build/reports/agent-mcp-ipc.patch`。
 
 ## 剩余缺口
 
@@ -182,4 +177,3 @@ Codex `workspace-write` 沙箱曾禁止 Unix socket `bind`（当时完整相关�
 status DTO 已对齐：fixture / Core / App overlay 均提供 `paired` + `pair_state` + `transport`（fixture 另带 `fixture=true`；真实 UDS 连接 `transport=unix_socket`、`pair_state=local_user_token`）。
 
 Bro 硬要求（UDS-only 非 fixture、enable gate listen/revoke、0700/0600+peer UID+token、QA-only 受信授权、status 字段统一、研究 `??` 不提交）已并入本轮实现。
-
