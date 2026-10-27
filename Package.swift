@@ -7,7 +7,8 @@ let package = Package(
     products: [
         .library(name: "PaperRssCore", targets: ["PaperRssCore"]),
         .library(name: "PaperRssUpdateSupport", targets: ["PaperRssUpdateSupport"]),
-        .executable(name: "PaperRssDesktop", targets: ["PaperRssDesktop"])
+        .executable(name: "PaperRssDesktop", targets: ["PaperRssDesktop"]),
+        .executable(name: "paperrss-agent", targets: ["PaperRssAgentHelper"])
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.11.1"),
@@ -15,13 +16,19 @@ let package = Package(
         .package(url: "https://github.com/sparkle-project/Sparkle.git", exact: "2.9.6")
     ],
     targets: [
+        .target(name: "PaperRssAgentProtocol", path: "PaperRss/Sources/Core/AgentProtocol"),
+        .target(name: "PaperRssAgentMCP", dependencies: ["PaperRssAgentProtocol"], path: "PaperRss/Sources/AgentMCP"),
+        .executableTarget(name: "PaperRssAgentHelper", dependencies: ["PaperRssAgentProtocol", "PaperRssAgentMCP"], path: "PaperRss/Sources/AgentHelper"),
+        .testTarget(name: "PaperRssAgentMCPTests", dependencies: ["PaperRssAgentProtocol", "PaperRssAgentMCP"], path: "Tests/AgentMCPTests"),
         .target(
             name: "PaperRssCore",
             dependencies: [
+                "PaperRssAgentProtocol",
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "Markdown", package: "swift-markdown")
             ],
             path: "PaperRss/Sources/Core",
+            exclude: ["AgentProtocol"],
             resources: [.process("../../Resources/Localization/Localizable.xcstrings")]
         ),
         .target(
@@ -33,6 +40,7 @@ let package = Package(
             dependencies: [
                 "PaperRssCore",
                 "PaperRssUpdateSupport",
+                "PaperRssAgentProtocol",
                 .product(name: "Sparkle", package: "Sparkle")
             ],
             path: "PaperRss/Sources/App",
@@ -49,10 +57,12 @@ let package = Package(
             name: "PaperRssCoreTests",
             dependencies: [
                 "PaperRssCore",
+                "PaperRssAgentProtocol",
                 .product(name: "GRDB", package: "GRDB.swift")
             ],
             path: "Tests",
             exclude: [
+                "AgentMCPTests",
                 "fixtures",
                 "CodeHighlightWebKitProbe.swift",
                 "MathJaxWebKitProbe.swift",

@@ -23,6 +23,7 @@ struct PaperRssApp: App {
 
     init() {
         let store = AppStore()
+        AgentBridgeController.shared.attach(to: store)
         let navigation = AppNavigationModel()
         _store = StateObject(wrappedValue: store)
         _navigation = StateObject(wrappedValue: navigation)
