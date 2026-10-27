@@ -1,15 +1,18 @@
 import Foundation
 import PaperRssAgentProtocol
 
-/// Fail-closed transport placeholder. Enabling this helper never grants access
-/// to a library: the App-owned UDS/pairing client remains a production TODO.
+/// Fail-closed stub used when no App transport is attached (unit tests / disabled path).
+/// Production non-fixture helpers use `AgentIPCClientBridge` over Unix domain socket IPC.
 public struct AgentUnavailableBridge: AgentBridge {
     public let enabled: Bool
     public init(enabled: Bool = false) { self.enabled = enabled }
 
     public func call(tool: String, arguments: [String: AgentJSON]) async throws -> AgentJSON {
         guard enabled else { throw AgentFailure("NOT_ENABLED", "Local Agent access is disabled.") }
-        throw AgentFailure("APP_NOT_RUNNING", "App bridge is unavailable. Production IPC is not implemented in this spike.")
+        throw AgentFailure(
+            "APP_NOT_RUNNING",
+            "PaperRss App is not running or Agent IPC is not listening. Start PaperRss with agentMCPEnabled ON; non-fixture helpers connect over Unix domain socket."
+        )
     }
 }
 
