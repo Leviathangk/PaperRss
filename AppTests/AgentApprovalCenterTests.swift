@@ -121,7 +121,7 @@ extension AgentApprovalCenterTests {
         XCTAssertTrue(code.contains("FeedFaviconView(feedID:"))
         XCTAssertTrue(code.contains(".nonactivatingPanel"))
         XCTAssertTrue(code.contains("window.isFloatingPanel = true"))
-        XCTAssertTrue(code.contains("panel?.orderFrontRegardless()"))
+        XCTAssertTrue(code.contains("panel?." + "orderFrontRegardless()"))
         XCTAssertTrue(code.contains("NSApp.requestUserAttention(.informationalRequest)"))
         for identifier in ["panel", "deny.", "approve.", "warning."] {
             XCTAssertTrue(code.contains("agent.approval." + identifier))

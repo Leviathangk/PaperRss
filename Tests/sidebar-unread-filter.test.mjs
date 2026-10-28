@@ -31,6 +31,7 @@ struct Sidebar {
   var unreadFilteredGroups: Set<SidebarSelection> = []
   let store = Store()
   var selection: SidebarSelection? = .folder(accountID: "local", folderName: "博客")
+  var agentFeedToReveal: Int? = nil
   ${methods}
   mutating func verify() {
     let feeds = [Feed(id: 3), Feed(id: 2), Feed(id: 1)]
