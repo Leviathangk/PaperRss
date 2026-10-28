@@ -1,5 +1,25 @@
 # 更新记录 / Changelog
 
+## v1.5.1 · Build 46 · 2026-10-28
+
+本次稳定版带来本地 MCP 外部助手、iCloud 同步，以及自 v1.4.5 以来 Beta 通道的阅读与翻译改进；推荐所有用户升级。
+
+- **本地 MCP 外部助手**：设置 → AI → MCP 可一键接入 Cursor、VS Code、Claude Code、Codex，并提供 Claude Desktop、Windsurf、Gemini CLI 的配置片段；App 内嵌已签名的 `paperrss-agent`，助手可查询资料库与订阅，添加/重命名/删除订阅需在 App 审批面板确认（按订阅分行、影响篇数显示在订阅行右侧）；支持审批模式、提示与资源、状态查询，以及打开文章与批量标记已读计划。
+- **iCloud 同步**：设置 → 账号可添加 iCloud，在多台 Mac 之间同步订阅源、目录、已读/未读与收藏；与「我的 Mac」、FreshRSS、Miniflux 相互独立。高级审阅与恢复入口仍在完善中。并修复本地副本快照稳定性。
+- **关闭自动全文抓取**：设置中可关闭「自动抓取全文网页」；关闭后仅使用订阅源/缓存正文，手动重新抓取仍可用；默认保持开启。[#42](https://github.com/ohmyangboy/PaperRss/issues/42)
+- **双语翻译与 AI 摘要**：改进对照排版、滚动中译文更新与请求调度；AI 摘要支持完整 Markdown / GFM 表格；默认摘要约 300 词并应用表达偏好；设置页支持键盘导航。[#45](https://github.com/ohmyangboy/PaperRss/issues/45)、[#44](https://github.com/ohmyangboy/PaperRss/issues/44)
+- **订阅与分享**：支持重命名订阅源、侧栏多选批量删除；列表右键可系统共享、拷贝链接、在浏览器打开；修复 Kimi 官方接口温度参数。[#46](https://github.com/ohmyangboy/PaperRss/issues/46)、[#47](https://github.com/ohmyangboy/PaperRss/issues/47)
+
+---
+
+This stable release adds local MCP external assistants, iCloud sync, and the reading/translation improvements from the Beta channel since v1.4.5. Recommended for all users.
+
+- **Local MCP assistants**: Settings → AI → MCP offers one-click setup for Cursor, VS Code, Claude Code and Codex, plus config snippets for Claude Desktop, Windsurf and Gemini CLI. The app embeds a signed `paperrss-agent` helper so assistants can query your library and feeds; feed add/rename/remove require confirmation in the in-app approval panel (per-feed rows with impact counts on the right). Approval modes, prompts, resources, status, opening articles and plan mark-read are included.
+- **iCloud sync**: Add an iCloud account in Settings → Accounts to sync feeds, folders, read/unread and starred state across Macs. My Mac, FreshRSS, Miniflux and iCloud stay separate. Advanced review and recovery UI continues to mature. Local-copy snapshot stability is improved.
+- **Disable automatic full-article fetch**: Settings can turn off automatic full-article web fetching. When off, use feed/cache content only; manual refetch still works. Default remains on. [#42](https://github.com/ohmyangboy/PaperRss/issues/42)
+- **Bilingual translation and AI summaries**: Improve side-by-side layout, in-scroll translation updates and request scheduling; AI summaries render full Markdown / GFM tables; default summary aims for about 300 words with expression preferences; Settings supports keyboard navigation. [#45](https://github.com/ohmyangboy/PaperRss/issues/45), [#44](https://github.com/ohmyangboy/PaperRss/issues/44)
+- **Feeds and sharing**: Rename feeds and multi-select delete in the sidebar; article-list context menu adds system Share, Copy Link and Open in Browser; omit temperature on official Kimi endpoints that reject it. [#46](https://github.com/ohmyangboy/PaperRss/issues/46), [#47](https://github.com/ohmyangboy/PaperRss/issues/47)
+
 ## v1.5.0-beta.4 · Build 45 · 2026-10-27
 
 本次 Beta 新增可关闭自动全文抓取的设置项，并修复 Kimi 官方接口温度参数与 iCloud 本地快照稳定性；推荐 Beta 通道用户更新测试，稳定版仍为 v1.4.5。
