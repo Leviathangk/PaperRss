@@ -23,8 +23,8 @@
 		A10000000000000000000022 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-                Sources/AgentMCP,
-                Sources/AgentHelper,
+				Sources/AgentMCP,
+				Sources/AgentHelper,
 				Resources/Highlight/LICENSE,
 				Resources/Highlight/README.md,
 				"Resources/iOS-Info.plist",
@@ -35,8 +35,8 @@
 		A10000000000000000000023 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-                Sources/AgentMCP,
-                Sources/AgentHelper,
+				Sources/AgentMCP,
+				Sources/AgentHelper,
 				Resources/Highlight/LICENSE,
 				Resources/Highlight/README.md,
 				"Resources/iOS-Info.plist",
@@ -47,7 +47,7 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		A10000000000000000000001 /* PaperRss */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (A10000000000000000000022 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, A10000000000000000000023 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = PaperRss; sourceTree = "<group>"; };
+		A10000000000000000000001 /* PaperRss */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (A10000000000000000000022 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, A10000000000000000000023 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (Sources/AgentMCP, Sources/AgentHelper, ); path = PaperRss; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
