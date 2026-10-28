@@ -66,16 +66,16 @@ public enum AgentToolCatalog {
 
 
 /// User-facing MCP catalog shared by Settings and the tool-definition contract tests.
-/// Aliases stay on their primary row so the catalog covers the wire API without duplicate rows.
+/// Aliases stay on their primary row without duplicate rows.
+/// get_content remains available at runtime for QA but is hidden until content authorization UI ships.
 public enum AgentMCPToolCatalog {
     public enum Group: String, CaseIterable, Sendable {
-        case readOnly, approvalGated, unavailable
+        case readOnly, approvalGated
 
         public var zhTitle: String {
             switch self {
             case .readOnly: "只读"
             case .approvalGated: "需审批写入"
-            case .unavailable: "暂不可用"
             }
         }
 
@@ -83,7 +83,6 @@ public enum AgentMCPToolCatalog {
             switch self {
             case .readOnly: "Read-only"
             case .approvalGated: "Approval-gated writes"
-            case .unavailable: "Temporarily unavailable"
             }
         }
     }
@@ -207,15 +206,6 @@ public enum AgentMCPToolCatalog {
                 "feed_id": "feed-id"
               }
               """,
-              aliases: ["remove_feed"]),
-        Entry("get_content", .unavailable, "需用户在 PaperRss 内授权正文选择；授权前助手通常无法使用。",
-              "Requires content selection granted by the user in PaperRss; assistants generally cannot use it before that.",
-              """
-              {
-                "account_id": "account-id",
-                "article_id": "article-id",
-                "selection_id": "app-issued-selection"
-              }
-              """)
+              aliases: ["remove_feed"])
     ]
 }

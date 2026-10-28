@@ -5,16 +5,19 @@ import PaperRssAgentMCP
 
 @MainActor
 final class AgentMCPTests: XCTestCase {
-    func testSettingsCatalogCoversEveryDefinitionAndAliasExactlyOnce() throws {
+    func testSettingsCatalogCoversVisibleDefinitionsAndAliasesExactlyOnce() throws {
         let entries = AgentMCPToolCatalog.entries
         let catalogNames = entries.flatMap { [$0.name] + $0.aliases }
         let definitionNames = try AgentMCPTools.definitions.map {
             try XCTUnwrap($0["name"]?.stringValue)
         }
-        XCTAssertEqual(Set(catalogNames), Set(definitionNames))
+        let hiddenName = "paperrss_get_content"
+        XCTAssertFalse(catalogNames.contains(hiddenName))
+        XCTAssertTrue(definitionNames.contains(hiddenName))
+        XCTAssertTrue(AgentToolCatalog.names.contains(hiddenName))
+        XCTAssertEqual(Set(catalogNames), Set(definitionNames).subtracting([hiddenName]))
         XCTAssertEqual(catalogNames.count, Set(catalogNames).count, "Duplicate catalog tool or alias")
         XCTAssertEqual(Set(entries.map(\.group)), Set(AgentMCPToolCatalog.Group.allCases))
-        XCTAssertEqual(entries.filter { $0.group == .unavailable }.map(\.name), ["paperrss_get_content"])
         for entry in entries {
             XCTAssertFalse(entry.zhSummary.isEmpty, entry.name)
             XCTAssertFalse(entry.enSummary.isEmpty, entry.name)
