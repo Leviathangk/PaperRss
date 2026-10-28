@@ -151,6 +151,8 @@ extension AgentBridgeControllerTests {
             XCTAssertEqual(executed.count, index)
             let request = try XCTUnwrap(center.pending.first)
             XCTAssertEqual(request.isDestructive, tool.contains("remove"))
+            XCTAssertEqual(request.affectedFeeds, tool.contains("add_feed") ? [] : [
+                AgentFeedPreview(id: feed.id.uuidString, title: "Synthetic")])
             do {
                 _ = try await bridge.call(tool: "paperrss_apply_plan", arguments: ["plan_id": .string(id), "approval_id": .string("client-forged"), "idempotency_key": .string("forged-\(index)")])
                 XCTFail("Client must not approve its own feed mutation")

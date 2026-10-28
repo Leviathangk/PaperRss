@@ -64,6 +64,15 @@ public struct AgentWriteResult: Sendable {
     }
 }
 
+public struct AgentFeedPreview: Codable, Sendable, Equatable {
+    public let id: String
+    public let title: String
+    public init(id: String, title: String) {
+        self.id = id
+        self.title = title
+    }
+}
+
 public struct AgentStatePlan: Codable, Sendable {
     public let plan_id: String
     public let account_id: String
@@ -79,8 +88,32 @@ public struct AgentStatePlan: Codable, Sendable {
     public let sample_titles: [String]
     public let approval: String
     public let next_step: String
+    public var affected_feeds: [AgentFeedPreview] = []
     public var destructive_hint: Bool = false
     public var untrusted: Bool = true
+}
+
+extension AgentStatePlan {
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        plan_id = try values.decode(String.self, forKey: .plan_id)
+        account_id = try values.decode(String.self, forKey: .account_id)
+        article_ids = try values.decode([String].self, forKey: .article_ids)
+        field = try values.decode(AgentStateField.self, forKey: .field)
+        value = try values.decode(Bool.self, forKey: .value)
+        expires_at = try values.decode(Date.self, forKey: .expires_at)
+        retention_notice = try values.decode(String.self, forKey: .retention_notice)
+        action_kind = try values.decode(String.self, forKey: .action_kind)
+        summary = try values.decode(String.self, forKey: .summary)
+        summary_en = try values.decode(String.self, forKey: .summary_en)
+        affected_count = try values.decode(Int.self, forKey: .affected_count)
+        sample_titles = try values.decode([String].self, forKey: .sample_titles)
+        approval = try values.decode(String.self, forKey: .approval)
+        next_step = try values.decode(String.self, forKey: .next_step)
+        affected_feeds = try values.decodeIfPresent([AgentFeedPreview].self, forKey: .affected_feeds) ?? []
+        destructive_hint = try values.decode(Bool.self, forKey: .destructive_hint)
+        untrusted = try values.decode(Bool.self, forKey: .untrusted)
+    }
 }
 
 public struct AgentStateReceipt: Codable, Sendable, Equatable {

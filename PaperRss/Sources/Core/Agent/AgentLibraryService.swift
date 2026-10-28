@@ -456,17 +456,33 @@ public actor AgentLibraryService: AgentBridge {
     }
 
     private func storePlan(account: String, ids: [String], field: AgentStateField, value: Bool,
-                           before: [String: ArticleStateRecord], kind: String, summary: String, summaryEnglish: String) throws -> AgentJSON {
+                           before: [String: ArticleStateRecord], kind: String, summary: String, summaryEnglish: String, feedID: String? = nil) throws -> AgentJSON {
         guard plans.count < 100 else { throw AgentFailure("RATE_LIMITED", "Session plan capacity reached.") }
         let titles = try database.read { db in
             try ids.prefix(5).map { String(try ownedEntry($0, account: account, in: db).0.title.plainText.prefix(200)) }
         }
-        try charge(summary.count + summaryEnglish.count + titles.reduce(0) { $0 + $1.count })
-        let dto = AgentStatePlan(plan_id: UUID().uuidString, account_id: account, article_ids: ids,
+        let feeds: [AgentFeedPreview] = try database.read { db in
+            if let feedID, let feed = try provider.feedRepository.fetchFeed(id: feedID, in: db),
+               feed.accountID == account, !feed.isDeleted {
+                return [AgentFeedPreview(id: feed.id, title: String(feed.title.plainText.prefix(200)))]
+            }
+            guard !ids.isEmpty else { return [] }
+            let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT DISTINCT f.id, f.title FROM feeds f JOIN items i ON i.feed_id = f.id
+                WHERE f.account_id = ? AND i.account_id = ? AND f.is_deleted = 0
+                AND i.id IN (\(placeholders)) ORDER BY f.id LIMIT 12
+                """, arguments: StatementArguments([account, account] + ids))
+            return rows.map { AgentFeedPreview(id: $0["id"], title: String(($0["title"] as String).plainText.prefix(200))) }
+        }
+        try charge(summary.count + summaryEnglish.count + titles.reduce(0) { $0 + $1.count }
+            + feeds.reduce(0) { $0 + $1.id.count + $1.title.count })
+        var dto = AgentStatePlan(plan_id: UUID().uuidString, account_id: account, article_ids: ids,
             field: field, value: value, expires_at: clock().addingTimeInterval(900),
             retention_notice: "Marking read or removing a star may make articles eligible for retention cleanup. Changes to synced accounts are queued for sync. No undo is provided.",
             action_kind: kind, summary: summary, summary_en: summaryEnglish, affected_count: ids.count, sample_titles: titles,
             approval: "pending", next_step: "PaperRss applies according to approval_mode. If pending, ask the user to approve in PaperRss; App applies immediately. Poll paperrss_status with plan_id for committed and receipt, or denied/expired. Only retry paperrss_apply_plan if status stays approved without receipt; never invent approval_id.")
+        dto.affected_feeds = feeds
         plans[dto.plan_id] = PendingPlan(dto: dto, before: before)
         return try .encoding(dto)
     }
@@ -529,21 +545,26 @@ public actor AgentLibraryService: AgentBridge {
                 return ("在 \(label) 中添加订阅 \(safe)\(details)", "Add subscription \(safe) in \(label)\(details)", 0)
             }
             let feed = try provider.feedRepository.fetchFeed(id: mutation.feedID!, in: db)!
-            let name = String(feed.title.plainText.prefix(200))
             let total = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM items WHERE account_id = ? AND feed_id = ?", arguments: [account, feed.id]) ?? 0
             let starred = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM items i JOIN article_states s ON s.item_id = i.id WHERE i.account_id = ? AND i.feed_id = ? AND s.is_starred = 1", arguments: [account, feed.id]) ?? 0
             if kind == "remove_feed" {
-                return ("删除订阅源 “\(name)”（含 \(total) 篇文章，已收藏 \(starred) 篇）。永久删除，无法撤销。",
-                        "Delete feed \"\(name)\" (\(total) articles, \(starred) starred). Destructive; no undo.", total)
+                return ("同时移除订阅历史，含 \(starred) 篇收藏。",
+                        "Also removes subscription history, including \(starred) starred articles.", total)
             }
-            return ("将订阅源 “\(name)” 重命名为 “\(title!)”", "Rename feed \"\(name)\" to \"\(title!)\"", 0)
+            return ("重命名为 “\(title!)”", "Rename to \"\(title!)\"", 0)
         }
         guard plans.count < 100 else { throw AgentFailure("RATE_LIMITED", "Session plan capacity reached.") }
-        try charge(summary.count + english.count)
+        let feeds: [AgentFeedPreview] = try database.read { db in
+            guard let id = mutation.feedID,
+                  let feed = try provider.feedRepository.fetchFeed(id: id, in: db) else { return [] }
+            return [AgentFeedPreview(id: feed.id, title: String(feed.title.plainText.prefix(200)))]
+        }
+        try charge(summary.count + english.count + feeds.reduce(0) { $0 + $1.id.count + $1.title.count })
         var dto = AgentStatePlan(plan_id: UUID().uuidString, account_id: account, article_ids: [], field: .read, value: false,
             expires_at: clock().addingTimeInterval(900), retention_notice: kind == "remove_feed" ? "Permanently deletes feed history including starred articles. No undo." : "Changes the subscription in the selected account.",
             action_kind: kind, summary: summary, summary_en: english, affected_count: count, sample_titles: [], approval: "pending",
             next_step: "PaperRss applies according to approval_mode. If pending, ask the user to approve in PaperRss; App applies immediately. Poll paperrss_status with plan_id for committed and receipt, or denied/expired. Only retry paperrss_apply_plan if status stays approved without receipt; never invent approval_id.")
+        dto.affected_feeds = feeds
         dto.destructive_hint = kind == "remove_feed"
         plans[dto.plan_id] = PendingPlan(dto: dto, before: [:], mutation: mutation)
         return try .encoding(dto)
@@ -575,8 +596,8 @@ public actor AgentLibraryService: AgentBridge {
                     throw AgentFailure("NOT_FOUND", "Feed not found in account.")
                 }
                 predicate = " AND i.feed_id = ?"; arguments.append(id)
-                label = "“\(String(feed.title.plainText.prefix(200)))” 订阅源"
-                englishLabel = "feed \"\(String(feed.title.plainText.prefix(200)))\""
+                label = "此订阅源"
+                englishLabel = "this feed"
             } else if scope == "folder" {
                 let value = try string(a, "folder")
                 let folders = try FolderRecord.fetchAll(db, sql: "SELECT * FROM folders WHERE account_id = ? AND is_deleted = 0 AND (id = ? OR name = ?)", arguments: [account, value, value])
@@ -603,7 +624,8 @@ public actor AgentLibraryService: AgentBridge {
         }
         return try storePlan(account: account, ids: ids, field: .read, value: true, before: states,
                              kind: "mark_read", summary: "将 \(label)的 \(ids.count) 篇未读标为已读",
-                             summaryEnglish: "Mark \(ids.count) unread articles in \(englishLabel) as read")
+                             summaryEnglish: "Mark \(ids.count) unread articles in \(englishLabel) as read",
+                             feedID: scope == "feed" ? a["feed_id"]?.stringValue : nil)
     }
     private func apply(_ a: [String: AgentJSON]) async throws -> AgentJSON {
         guard !applying else { throw AgentFailure("CONFLICT", "Another write is executing; retry shortly.") }

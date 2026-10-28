@@ -75,6 +75,7 @@ final class AgentBridgeController: AgentBridge {
     /// App initialization owns this call; WindowGroup.onAppear must not create bridges.
     func attach(to store: AppStore, opener: @escaping @MainActor @Sendable (AgentOpenRequest) throws -> Void) {
         guard database == nil, store.startupError == nil else { return }
+        approvalCenter.store = store
         writeAction = { [weak store] account, ids, field, value, expiresAt in
             guard let store else { throw AgentFailure("APP_NOT_RUNNING", "PaperRss is not ready.") }
             return try store.applyAgentStateChange(accountID: account, articleIDs: ids, field: field, value: value, expiresAt: expiresAt)
@@ -328,7 +329,11 @@ final class AgentBridgeController: AgentBridge {
             affectedCount: plan["affected_count"]?.intValue ?? 0,
             sampleTitles: plan["sample_titles"]?.arrayValue?.compactMap(\.stringValue) ?? [],
             notice: plan["retention_notice"]?.stringValue ?? "", expiresAt: expiresAt,
-            summaryEnglish: plan["summary_en"]?.stringValue)
+            summaryEnglish: plan["summary_en"]?.stringValue,
+            affectedFeeds: plan["affected_feeds"]?.arrayValue?.compactMap { feed in
+                guard let id = feed["id"]?.stringValue, let title = feed["title"]?.stringValue else { return nil }
+                return AgentFeedPreview(id: id, title: title)
+            } ?? [])
         approvalCenter.register(request, approve: { [weak self] in
             guard let self else { throw AgentFailure("APP_NOT_RUNNING", "PaperRss has stopped.") }
             _ = try await self.confirmStatePlan(planID: planID, sessionID: sessionID)

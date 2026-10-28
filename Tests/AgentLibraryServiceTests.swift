@@ -504,6 +504,8 @@ final class AgentLibraryServiceTests: XCTestCase {
             "account_id": account, "scope": .string("feed"), "feed_id": .string(fixture.feed.id.uuidString),
             "before": .string("2023-11-14T22:13:21Z")])
         XCTAssertEqual(result["article_ids"], .array([.string("a")]))
+        XCTAssertEqual(result["affected_feeds"], .array([
+            .object(["id": .string(fixture.feed.id.uuidString), "title": .string("Fixture feed")])]))
         let id = try XCTUnwrap(result["plan_id"]?.stringValue)
         try fixture.database.write { db in
             try ItemRecord(id: "later", accountID: "local-default", externalID: "later", feedID: fixture.feed.id.uuidString,
@@ -529,6 +531,7 @@ final class AgentLibraryServiceTests: XCTestCase {
             let plan = try await service.call(tool: "paperrss_plan_mark_read", arguments: [
                 "account_id": account, "scope": .string("folder"), "folder": .string(folder)])
             XCTAssertEqual(plan["article_ids"], .array([.string("a"), .string("b")]))
+            XCTAssertEqual(plan["affected_feeds"]?.arrayValue?.map { $0["id"] }, [.string(fixture.feed.id.uuidString)])
         }
         let plan = try await service.call(tool: "paperrss_plan_mark_read", arguments: ["account_id": account, "scope": .string("account")])
         XCTAssertEqual(plan["affected_count"], .number(2))
@@ -631,6 +634,8 @@ final class AgentLibraryServiceTests: XCTestCase {
                 let plan = try await service.call(tool: name, arguments: args)
                 XCTAssertEqual(plan["approval"], .string("pending"))
                 XCTAssertEqual(plan["action_kind"], .string(kind))
+                XCTAssertEqual(plan["affected_feeds"], .array(kind == "add_feed" ? [] : [
+                    .object(["id": .string(fixture.feed.id.uuidString), "title": .string("Fixture feed")])]))
                 XCTAssertEqual(plan["untrusted"], .bool(true))
                 if kind == "remove_feed" {
                     XCTAssertEqual(plan["affected_count"], .number(3))
@@ -814,5 +819,50 @@ extension AgentLibraryServiceTests {
         await expectFailure("CONFIRMATION_REQUIRED") {
             _ = try await service.call(tool: "paperrss_apply_plan", arguments: applyArguments(plan: id, approval: "forged", key: "forged"))
         }
+    }
+}
+
+extension AgentLibraryServiceTests {
+    func testFeedPreviewsDeduplicateBoundAndDecodeLegacyPlans() async throws {
+        let fixture = try Fixture(); defer { try? fixture.remove() }
+        let service = fixture.service()
+        let state = try await service.call(tool: "paperrss_plan_state_change", arguments: [
+            "account_id": account, "article_ids": .array([.string("a"), .string("b")]),
+            "field": .string("read"), "value": .bool(true)])
+        XCTAssertEqual(state["affected_feeds"]?.arrayValue?.count, 1)
+        let data = try JSONEncoder().encode(state)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let dto = try decoder.decode(AgentStatePlan.self, from: data)
+        XCTAssertEqual(dto.affected_feeds, [AgentFeedPreview(id: fixture.feed.id.uuidString, title: "Fixture feed")])
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        legacy.removeValue(forKey: "affected_feeds")
+        let old = try decoder.decode(AgentStatePlan.self, from: JSONSerialization.data(withJSONObject: legacy))
+        XCTAssertEqual(old.affected_feeds, [])
+
+        for index in 0..<14 {
+            let feed = try fixture.provider.addFeed(title: "Feed \(index)", feedURL: URL(string: "https://example.org/\(index)")!)
+            try fixture.database.write { db in
+                let id = "extra-\(index)"
+                try ItemRecord(id: id, accountID: "local-default", externalID: id, feedID: feed.id.uuidString, createdAt: 1, updatedAt: 1).insert(db)
+                try ArticleRecord(itemID: id, title: "Extra").insert(db)
+                try ArticleStateRecord(itemID: id, isRead: false, dateArrived: 1, updatedAt: 1).insert(db)
+            }
+        }
+        let all = try await service.call(tool: "paperrss_plan_mark_read", arguments: ["account_id": account, "scope": .string("account")])
+        let previews = try XCTUnwrap(all["affected_feeds"]?.arrayValue)
+        XCTAssertEqual(previews.count, 12)
+        XCTAssertEqual(Set(previews.compactMap { $0["id"]?.stringValue }).count, 12)
+        XCTAssertEqual(all["affected_count"], .number(16))
+    }
+
+    func testEmptyFeedMarkReadStillPreviewsSubscription() async throws {
+        let fixture = try Fixture(); defer { try? fixture.remove() }
+        try fixture.provider.markRead(entryID: "a", read: true)
+        try fixture.provider.markRead(entryID: "b", read: true)
+        let plan = try await fixture.service().call(tool: "paperrss_plan_mark_read", arguments: [
+            "account_id": account, "scope": .string("feed"), "feed_id": .string(fixture.feed.id.uuidString)])
+        XCTAssertEqual(plan["affected_count"], .number(0))
+        XCTAssertEqual(plan["affected_feeds"]?.arrayValue?.first?["id"], .string(fixture.feed.id.uuidString))
     }
 }

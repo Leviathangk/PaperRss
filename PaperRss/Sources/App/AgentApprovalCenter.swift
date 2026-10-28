@@ -20,12 +20,14 @@ final class AgentApprovalCenter: ObservableObject {
         let summary: String
         let affectedCount: Int
         let sampleTitles: [String]
+        let affectedFeeds: [AgentFeedPreview]
         let notice: String
         let expiresAt: Date
         let summaryEnglish: String?
         init(sessionID: String, planID: String, clientLabel: String?, actionKind: String,
              accountName: String, accountType: String, summary: String, affectedCount: Int,
-             sampleTitles: [String], notice: String, expiresAt: Date, summaryEnglish: String? = nil) {
+             sampleTitles: [String], notice: String, expiresAt: Date, summaryEnglish: String? = nil,
+             affectedFeeds: [AgentFeedPreview] = []) {
             self.sessionID = sessionID
             self.planID = planID
             self.clientLabel = clientLabel
@@ -38,6 +40,7 @@ final class AgentApprovalCenter: ObservableObject {
             self.notice = notice
             self.expiresAt = expiresAt
             self.summaryEnglish = summaryEnglish
+            self.affectedFeeds = affectedFeeds
         }
         var id: Key { Key(sessionID: sessionID, planID: planID) }
         var isDestructive: Bool { actionKind == "remove_feed" }
@@ -47,11 +50,7 @@ final class AgentApprovalCenter: ObservableObject {
                 return I18N.shared.localized("删除订阅源会移除其中的文章（包括收藏），并同步到该账号。此操作不可撤销。",
                     "Removing this feed deletes its articles, including starred articles, and updates this account. This cannot be undone.")
             }
-            if isFeedManagement {
-                return I18N.shared.localized("此更改将应用到所选账号。此操作不提供撤销。", "This change applies to the selected account. No undo is provided.")
-            }
-            return I18N.shared.localized("标为已读或取消收藏可能使文章符合自动清理条件。同步账号的更改将排队同步。此操作不提供撤销。",
-                "Marking read or removing a star may make articles eligible for retention cleanup. Changes to synced accounts are queued for sync. No undo is provided.")
+            return ""
         }
     }
     typealias Decision = @MainActor () async throws -> Void
@@ -60,6 +59,7 @@ final class AgentApprovalCenter: ObservableObject {
     @Published private(set) var busy: Set<Key> = []
     @Published private(set) var failed: Set<Key> = []
     private var actions: [Key: Actions] = [:]
+    weak var store: AppStore?
     private let showPanel: Bool
     private let clock: () -> Date
     private var expiryTask: Task<Void, Never>?
@@ -144,6 +144,7 @@ final class AgentApprovalCenter: ObservableObject {
 
     #if os(macOS)
     private func presentPanel() {
+        guard let store else { return }
         if panel == nil {
             let window = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 440, height: 340),
                 styleMask: [.titled, .closable, .resizable, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -152,6 +153,8 @@ final class AgentApprovalCenter: ObservableObject {
             window.hidesOnDeactivate = false
             window.level = .floating
             window.contentView = NSHostingView(rootView: AgentApprovalList(center: self)
+                .environmentObject(store)
+                .environmentObject(store.iconStore)
                 .frame(minWidth: 400, minHeight: 200).accessibilityIdentifier("agent.approval.panel"))
             window.center()
             panel = window
@@ -178,13 +181,14 @@ final class AgentApprovalCenter: ObservableObject {
 
     fileprivate func updatePanelTitle() {
         #if os(macOS)
-        panel?.title = I18N.shared.localized("Agent 请求批准", "Agent Approval Request")
+        panel?.title = "PaperRss MCP"
         #endif
     }
 }
 
 struct AgentApprovalList: View {
     @ObservedObject var center: AgentApprovalCenter
+    @EnvironmentObject private var store: AppStore
     @ObservedObject private var i18n = I18N.shared
 
     var body: some View {
@@ -193,25 +197,26 @@ struct AgentApprovalList: View {
                 ForEach(center.pending) { request in
                     VStack(alignment: .leading, spacing: 10) {
                         Text(verbatim: source(request.clientLabel)).font(.subheadline).foregroundStyle(.secondary)
+                        Text(verbatim: actionTitle(request.actionKind))
+                            .font(.system(size: 20, weight: .semibold))
                         Text(verbatim: clipped(request.accountName, limit: 120) + " · " + clipped(request.accountType, limit: 40))
                             .font(.caption).foregroundStyle(.secondary)
-                        Text(verbatim: actionTitle(request.actionKind)).font(.headline)
-                        Text(verbatim: clipped(i18n.localized(request.summary, request.summaryEnglish ?? request.summary), limit: 600))
+                        feedPreview(request)
+                        Text(verbatim: shortSummary(request))
+                            .font(.subheadline)
                             .fixedSize(horizontal: false, vertical: true)
-                        if request.affectedCount > 0 || !request.sampleTitles.isEmpty {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(verbatim: i18n.localized("影响 \(request.affectedCount) 篇文章", "Affects \(request.affectedCount) articles"))
-                                    .font(.caption).fontWeight(.medium)
-                                ForEach(Array(request.sampleTitles.prefix(3).enumerated()), id: \.offset) { _, title in
-                                    Text(verbatim: "• " + clipped(title, limit: 160))
-                                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                                }
-                            }
+                        if request.affectedCount > 0 {
+                            Text(verbatim: i18n.localized("影响 \(request.affectedCount) 篇", "Affects \(request.affectedCount) articles"))
+                                .font(.caption.weight(.medium))
+                                .padding(.horizontal, 9).padding(.vertical, 5)
+                                .background(.quaternary, in: Capsule())
                         }
-                        Text(verbatim: request.warning)
-                            .font(.caption).foregroundStyle(request.isDestructive ? Color.red : Color.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityIdentifier("agent.approval.warning.\(request.planID)")
+                        if request.isDestructive {
+                            Text(verbatim: request.warning)
+                                .font(.caption).foregroundStyle(.red)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("agent.approval.warning.\(request.planID)")
+                        }
                         Text(i18n.localized("到期时间：", "Expires: ") + request.expiresAt.formatted(date: .omitted, time: .standard))
                             .font(.caption).foregroundStyle(.secondary)
                         if center.failed.contains(request.id) {
@@ -245,11 +250,47 @@ struct AgentApprovalList: View {
         .onChange(of: i18n.isEnglish) { center.updatePanelTitle() }
     }
 
+    @ViewBuilder
+    private func feedPreview(_ request: AgentApprovalCenter.Request) -> some View {
+        if !request.affectedFeeds.isEmpty {
+            HStack(spacing: 10) {
+                ForEach(request.affectedFeeds.prefix(7), id: \.id) { preview in
+                    let title = clipped(preview.title, limit: 200)
+                    if let id = UUID(uuidString: preview.id) {
+                        FeedFaviconView(feedID: id, iconURL: store.feed(forFeedID: id)?.iconURL,
+                            title: title, size: 18)
+                            .help(title)
+                            .accessibilityLabel(title)
+                    }
+                    if request.affectedFeeds.count == 1 {
+                        Text(verbatim: title)
+                            .font(.system(size: 13, weight: .medium))
+                            .lineLimit(2)
+                    }
+                }
+                if request.affectedFeeds.count > 7 {
+                    Text(verbatim: "+\(request.affectedFeeds.count - 7)")
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 6).padding(.vertical, 3)
+                        .background(.quaternary, in: Capsule())
+                        .help(request.affectedFeeds.dropFirst(7).map(\.title).joined(separator: "\n"))
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private func shortSummary(_ request: AgentApprovalCenter.Request) -> String {
+        return clipped(i18n.localized(request.summary, request.summaryEnglish ?? request.summary), limit: 600)
+    }
+
     private func actionTitle(_ kind: String) -> String {
         switch kind {
         case "add_feed": return i18n.localized("添加订阅源", "Add Feed")
         case "rename_feed": return i18n.localized("重命名订阅源", "Rename Feed")
-        case "remove_feed": return i18n.localized("删除订阅源（不可撤销）", "Remove Feed (Cannot Be Undone)")
+        case "remove_feed": return i18n.localized("删除订阅源", "Remove Feed")
         case "mark_read": return i18n.localized("批量标为已读", "Mark Articles Read")
         case "state_change": return i18n.localized("更改已读或收藏状态", "Change Read or Starred State")
         default: return i18n.localized("更改文章状态", "Change Article State")

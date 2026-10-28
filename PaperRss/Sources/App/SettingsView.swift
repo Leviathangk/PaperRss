@@ -2984,6 +2984,8 @@ struct SettingsView: View {
             if !agentApprovals.pending.isEmpty {
                 settingsGroup(I18N.shared.localized("待批准的操作", "Pending Approvals")) {
                     AgentApprovalList(center: agentApprovals)
+                        .environmentObject(store)
+                        .environmentObject(store.iconStore)
                         .frame(height: 340).padding(18)
                 }
             }
