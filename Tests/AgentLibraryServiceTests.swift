@@ -295,22 +295,22 @@ final class AgentLibraryServiceTests: XCTestCase {
         let approval = try await service.approve(planID: plan)
         let receipt = try await service.call(tool: "paperrss_apply_state_change", arguments: applyArguments(plan: plan, approval: approval))
         XCTAssertEqual(receipt["local_commit"], .string("committed"))
-        XCTAssertEqual(receipt["sync"], .string("not_applicable"))
+        XCTAssertEqual(receipt["sync"], .string("local_only"))
         XCTAssertEqual(receipt["applied_count"], .number(2))
         XCTAssertTrue(try fixture.state("a").isRead)
         XCTAssertTrue(try fixture.state("b").isRead)
     }
 
-    func testConflictRejectsEntireBatch() async throws {
+    func testAlreadyReadArticlesAreSkippedAtApply() async throws {
         let fixture = try Fixture(); defer { try? fixture.remove() }
         let service = fixture.service()
         let plan = try await makePlan(service)
         let approval = try await service.approve(planID: plan)
         try fixture.provider.markRead(entryID: "b", read: true)
-        await expectFailure("CONFLICT") {
-            _ = try await service.call(tool: "paperrss_apply_state_change", arguments: applyArguments(plan: plan, approval: approval))
-        }
-        XCTAssertFalse(try fixture.state("a").isRead, "The unaffected first item must not be partially committed")
+        let receipt = try await service.call(tool: "paperrss_apply_plan", arguments: applyArguments(plan: plan, approval: approval))
+        XCTAssertEqual(receipt["applied_count"], .number(1))
+        XCTAssertEqual(receipt["skipped_count"], .number(1))
+        XCTAssertTrue(try fixture.state("a").isRead)
         XCTAssertTrue(try fixture.state("b").isRead)
     }
 
@@ -495,6 +495,127 @@ final class AgentLibraryServiceTests: XCTestCase {
             try db.execute(sql: "UPDATE accounts SET type = ? WHERE id = ?", arguments: [AccountType.iCloud.rawValue, "local-default"])
         }
         await expectFailure("UNSUPPORTED") { _ = try await makePlan(service) }
+    }
+
+    func testMarkReadSnapshotExcludesLaterArrivalsAndSupportsBefore() async throws {
+        let fixture = try Fixture(); defer { try? fixture.remove() }
+        let service = fixture.service()
+        let result = try await service.call(tool: "paperrss_plan_mark_read", arguments: [
+            "account_id": account, "scope": .string("feed"), "feed_id": .string(fixture.feed.id.uuidString),
+            "before": .string("2023-11-14T22:13:21Z")])
+        XCTAssertEqual(result["article_ids"], .array([.string("a")]))
+        let id = try XCTUnwrap(result["plan_id"]?.stringValue)
+        try fixture.database.write { db in
+            try ItemRecord(id: "later", accountID: "local-default", externalID: "later", feedID: fixture.feed.id.uuidString,
+                           createdAt: 1, updatedAt: 1).insert(db)
+            try ArticleRecord(itemID: "later", title: "Later arrival", publishedAt: 1).insert(db)
+            try ArticleStateRecord(itemID: "later", dateArrived: 1, updatedAt: 1).insert(db)
+        }
+        let approval = try await service.approve(planID: id)
+        let receipt = try await service.call(tool: "paperrss_apply_plan", arguments: applyArguments(plan: id, approval: approval))
+        XCTAssertEqual(receipt["applied_count"], .number(1))
+        XCTAssertFalse(try fixture.state("later").isRead)
+        XCTAssertFalse(try fixture.state("b").isRead)
+    }
+
+    func testMarkReadFolderAndAccountScopesAndCap() async throws {
+        let fixture = try Fixture(); defer { try? fixture.remove() }
+        try fixture.database.write { db in
+            try FolderRecord(id: "folder", accountID: "local-default", name: "Science", updatedAt: 1).insert(db)
+            try FeedFolderRecord(feedID: fixture.feed.id.uuidString, folderID: "folder").insert(db)
+        }
+        let service = fixture.service()
+        for folder in ["folder", "Science"] {
+            let plan = try await service.call(tool: "paperrss_plan_mark_read", arguments: [
+                "account_id": account, "scope": .string("folder"), "folder": .string(folder)])
+            XCTAssertEqual(plan["article_ids"], .array([.string("a"), .string("b")]))
+        }
+        let plan = try await service.call(tool: "paperrss_plan_mark_read", arguments: ["account_id": account, "scope": .string("account")])
+        XCTAssertEqual(plan["affected_count"], .number(2))
+        try fixture.database.write { db in
+            for index in 0..<4999 {
+                let id = "cap-\(index)"
+                try ItemRecord(id: id, accountID: "local-default", externalID: id, feedID: fixture.feed.id.uuidString, createdAt: 1, updatedAt: 1).insert(db)
+                try ArticleRecord(itemID: id, title: "Cap fixture").insert(db)
+                try ArticleStateRecord(itemID: id, dateArrived: 1, updatedAt: 1).insert(db)
+            }
+        }
+        await expectFailure("INVALID_ARGUMENT") {
+            _ = try await service.call(tool: "paperrss_plan_mark_read", arguments: ["account_id": account, "scope": .string("account")])
+        }
+    }
+
+    func testSnapshotApplyRejectsRemovedArticleWithoutPartialCommit() async throws {
+        let fixture = try Fixture(); defer { try? fixture.remove() }
+        let service = fixture.service()
+        let plan = try await service.call(tool: "paperrss_plan_mark_read", arguments: ["account_id": account, "scope": .string("account")])
+        let id = try XCTUnwrap(plan["plan_id"]?.stringValue)
+        await expectFailure("CONFIRMATION_REQUIRED") {
+            _ = try await service.call(tool: "paperrss_apply_plan", arguments: applyArguments(plan: id, approval: "client-issued"))
+        }
+        let approval = try await service.approve(planID: id)
+        try fixture.database.write { db in try db.execute(sql: "DELETE FROM items WHERE id = 'b'") }
+        await expectFailure("NOT_FOUND") {
+            _ = try await service.call(tool: "paperrss_apply_plan", arguments: applyArguments(plan: id, approval: approval))
+        }
+        XCTAssertFalse(try fixture.state("a").isRead)
+    }
+
+    func testDeniedAndCrossSessionApprovalCannotWriteAndExpiryStaysVisible() async throws {
+        let fixture = try Fixture(); defer { try? fixture.remove() }
+        let clock = TestClock(), service = fixture.service()
+        let id = try await makePlan(service)
+        let other = fixture.service()
+        await expectFailure("CONFLICT") { _ = try await other.approve(planID: id) }
+        try await service.deny(planID: id)
+        let status = try await service.call(tool: "paperrss_status", arguments: ["plan_id": .string(id)])
+        XCTAssertEqual(status["plan_state"], .string("denied"))
+        XCTAssertEqual(status["pending_approvals"], .number(0))
+        XCTAssertNil(status["approval_id"])
+        await expectFailure("DENIED") { _ = try await service.approve(planID: id) }
+        await expectFailure("DENIED") {
+            _ = try await service.call(tool: "paperrss_apply_plan", arguments: applyArguments(plan: id, approval: "fake"))
+        }
+        let expiring = fixture.service(clock: { clock.now() })
+        let expiredID = try await makePlan(expiring)
+        clock.advance(901)
+        _ = try await expiring.call(tool: "paperrss_list_feeds", arguments: ["account_id": account])
+        let expired = try await expiring.call(tool: "paperrss_status", arguments: ["plan_id": .string(expiredID)])
+        XCTAssertEqual(expired["plan_state"], .string("expired"))
+        XCTAssertEqual(expired["pending_approvals"], .number(0))
+    }
+
+    private actor RecordingExecutor: AgentWriteExecutor {
+        var calls: [[String]] = []
+        func execute(accountID: String, articleIDs: [String], field: AgentStateField, value: Bool, expiresAt: Date) async throws -> AgentWriteResult {
+            calls.append([accountID] + articleIDs)
+            return AgentWriteResult(appliedCount: articleIDs.count, skippedCount: 0, sync: "queued_for_sync")
+        }
+    }
+
+    func testRemoteAccountExecutorReceivesExactSnapshotAndReplayDoesNotExecuteAgain() async throws {
+        let fixture = try Fixture(); defer { try? fixture.remove() }
+        for type in [AccountType.iCloud, .freshRSS, .miniflux] {
+            try fixture.database.write { db in
+                try db.execute(sql: "UPDATE accounts SET type = ? WHERE id = 'local-default'", arguments: [type.rawValue])
+            }
+            let executor = RecordingExecutor()
+            let service = AgentLibraryService(database: fixture.database,
+                policy: AgentAccessPolicy(enabled: true, accountIDs: ["local-default"], allowStateChanges: true), writeExecutor: executor)
+            let plan = try await service.call(tool: "paperrss_plan_mark_read", arguments: ["account_id": account, "scope": .string("account")])
+            let id = try XCTUnwrap(plan["plan_id"]?.stringValue)
+            let approval = try await service.approve(planID: id)
+            let args = applyArguments(plan: id, approval: approval)
+            let receipt = try await service.call(tool: "paperrss_apply_plan", arguments: args)
+            XCTAssertEqual(receipt["sync"], .string("queued_for_sync"))
+            let replay = try await service.call(tool: "paperrss_apply_state_change", arguments: args)
+            XCTAssertEqual(receipt, replay)
+            let calls = await executor.calls
+            XCTAssertEqual(calls, [["local-default", "a", "b"]])
+            let status = try await service.call(tool: "paperrss_status", arguments: ["plan_id": .string(id)])
+            XCTAssertEqual(status["plan_state"], .string("committed"))
+            XCTAssertNil(status["approval_id"])
+        }
     }
 
     func testFeedMutationStubsNeverReportSuccessOrChangeFeeds() async throws {

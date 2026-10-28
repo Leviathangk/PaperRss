@@ -18,6 +18,9 @@ final class AgentBridgeController: AgentBridge {
     typealias AccountSnapshotProvider = @MainActor () throws -> [AgentJSON]
     private var accountSnapshotProvider: AccountSnapshotProvider?
     private var opener: (@MainActor @Sendable (AgentOpenRequest) throws -> Void)?
+    let approvalCenter: AgentApprovalCenter
+    private var clientLabels: [String: String] = [:]
+    private var writeAction: (@MainActor @Sendable (String, [String], AgentStateField, Bool, Date) throws -> AgentWriteResult)?
     private var sessions: [String: AgentLibraryService] = [:]
     private var generation = UUID()
     private var qaArticleIDs: [String] = []
@@ -31,8 +34,9 @@ final class AgentBridgeController: AgentBridge {
     #endif
 
     init(defaults: UserDefaults = .standard,
-         directory: URL? = nil, launchArguments: [String] = CommandLine.arguments) {
+         directory: URL? = nil, approvalCenter: AgentApprovalCenter? = nil, launchArguments: [String] = CommandLine.arguments) {
         self.defaults = defaults
+        self.approvalCenter = approvalCenter ?? AgentApprovalCenter()
         #if os(macOS)
         self.directory = directory ?? AgentIPCPaths.defaultDirectory
         #endif
@@ -54,6 +58,10 @@ final class AgentBridgeController: AgentBridge {
     /// App initialization owns this call; WindowGroup.onAppear must not create bridges.
     func attach(to store: AppStore, opener: @escaping @MainActor @Sendable (AgentOpenRequest) throws -> Void) {
         guard database == nil, store.startupError == nil else { return }
+        writeAction = { [weak store] account, ids, field, value, expiresAt in
+            guard let store else { throw AgentFailure("APP_NOT_RUNNING", "PaperRss is not ready.") }
+            return try store.applyAgentStateChange(accountID: account, articleIDs: ids, field: field, value: value, expiresAt: expiresAt)
+        }
         Task { [weak self, store] in
             do { try await self?.attach(database: store.libraryDatabase, accountID: store.localProvider.accountID,
                 accountSnapshotProvider: { [weak store] in
@@ -81,6 +89,8 @@ final class AgentBridgeController: AgentBridge {
         let endpoint = AgentIPCServer(directory: directory, handler: { [weak self] sessionID, tool, arguments in
             guard let self else { throw AgentFailure("APP_NOT_RUNNING", "PaperRss has stopped.") }
             return try await self.call(sessionID: sessionID, tool: tool, arguments: arguments)
+        }, connected: { [weak self] sessionID, label in
+            await self?.setClientLabel(label, sessionID: sessionID)
         }, disconnected: { [weak self] sessionID in
             await self?.disconnect(sessionID: sessionID)
         })
@@ -107,6 +117,14 @@ final class AgentBridgeController: AgentBridge {
         #endif
     }
 
+    #if DEBUG
+    /// Isolated fixtures only; never reached by IPC or launch arguments.
+    func attachForTesting(database: LibraryDatabase) {
+        self.database = database
+        accountSnapshotProvider = { try Self.accountSnapshots(database: database) }
+    }
+    #endif
+
     func refreshEnablement() async throws {
         let enabled = defaults.bool(forKey: Self.enableKey)
         // Revoke even if filesystem state cannot be updated (for example a full disk).
@@ -132,7 +150,14 @@ final class AgentBridgeController: AgentBridge {
         guard sessions.count < 16 else { throw AgentFailure("RATE_LIMITED", "Too many local agent sessions.") }
         let sessionGeneration = generation
         let created = AgentLibraryService(database: database, accountID: accountID,
-            policy: AgentAccessPolicy(enabled: true, accountIDs: accountIDs, allowStarred: true),
+            policy: AgentAccessPolicy(enabled: true, accountIDs: accountIDs, allowStarred: true, allowStateChanges: true),
+            writeExecutor: writeAction.map { action in AppAgentWriteExecutor { [weak self] account, ids, field, value, expiresAt in
+                guard let self, self.generation == sessionGeneration, self.sessions[id] != nil,
+                      self.defaults.bool(forKey: Self.enableKey) else {
+                    throw AgentFailure("NOT_ENABLED", "Local agent access was revoked.")
+                }
+                return try action(account, ids, field, value, expiresAt)
+            } },
             opener: { [weak self] request in
                 guard let self, self.generation == sessionGeneration, self.sessions[id] != nil,
                       self.defaults.bool(forKey: Self.enableKey), let opener = self.opener else {
@@ -161,7 +186,7 @@ final class AgentBridgeController: AgentBridge {
         try await call(sessionID: "app", tool: tool, arguments: arguments)
     }
 
-    private func call(sessionID: String, tool: String, arguments: [String: AgentJSON]) async throws -> AgentJSON {
+    func call(sessionID: String, tool: String, arguments: [String: AgentJSON]) async throws -> AgentJSON {
         let requestGeneration = generation
         let service = try await readySession(id: sessionID)
         var response = try await service.call(tool: tool, arguments: arguments)
@@ -169,9 +194,18 @@ final class AgentBridgeController: AgentBridge {
               sessions[sessionID] === service else {
             throw AgentFailure("NOT_ENABLED", "Local agent access was revoked during the request.")
         }
+        if ["paperrss_plan_state_change", "paperrss_plan_mark_read"].contains(tool) {
+            try registerApproval(response, sessionID: sessionID)
+        }
         if tool == "paperrss_status", var status = response.objectValue {
             status["app"] = Self.appInfo()
-            status["accounts"] = .array(try accountSnapshotProvider?() ?? [])
+            status["accounts"] = .array(try (accountSnapshotProvider?() ?? []).map { account in
+                guard var fields = account.objectValue, fields["enabled"]?.boolValue == true else { return account }
+                var capabilities = fields["capabilities"]?.arrayValue ?? []
+                capabilities.append(.string("state.write.approval"))
+                fields["capabilities"] = .array(capabilities)
+                return .object(fields)
+            })
             status["capabilities"] = .array(Self.capabilities(canOpen: opener != nil).map(AgentJSON.string))
             status["tools"] = .array(AgentToolCatalog.names.map(AgentJSON.string))
             status["transport"] = .string(sessionID == "app" ? "in_process" : "unix_socket")
@@ -194,7 +228,7 @@ final class AgentBridgeController: AgentBridge {
     }
 
     private static func capabilities(canOpen: Bool) -> [String] {
-        ["metadata.read", "content.read.selection"] + (canOpen ? ["ui.open"] : [])
+        ["metadata.read", "content.read.selection", "state.write.approval"] + (canOpen ? ["ui.open"] : [])
     }
 
     static func accountSnapshots(database: LibraryDatabase, accounts: [AccountRecord]? = nil,
@@ -209,17 +243,59 @@ final class AgentBridgeController: AgentBridge {
         return try await service.authorizeContent(accountID: accountID, articleIDs: articleIDs)
     }
 
-    /// Still disabled by the real App session policy.
-    func confirmStatePlan(planID: String) async throws -> String {
-        try await readySession(id: "app").approve(planID: planID)
+    /// Trusted UI callback only. No RPC dispatch exposes approval or denial.
+    func confirmStatePlan(planID: String, sessionID: String) async throws -> String {
+        guard defaults.bool(forKey: Self.enableKey), let service = sessions[sessionID] else {
+            throw AgentFailure("NOT_ENABLED", "Approval session is unavailable.")
+        }
+        return try await service.approve(planID: planID)
     }
 
-    private func disconnect(sessionID: String) async {
+    func denyStatePlan(planID: String, sessionID: String) async throws {
+        guard let service = sessions[sessionID] else { throw AgentFailure("NOT_FOUND", "Session not found.") }
+        try await service.deny(planID: planID)
+    }
+
+    private func setClientLabel(_ label: String?, sessionID: String) {
+        clientLabels[sessionID] = label
+    }
+
+    private func registerApproval(_ plan: AgentJSON, sessionID: String) throws {
+        guard let planID = plan["plan_id"]?.stringValue,
+              let accountID = plan["account_id"]?.stringValue,
+              let expiry = plan["expires_at"]?.stringValue,
+              let expiresAt = ISO8601DateFormatter().date(from: expiry) else {
+            throw AgentFailure("INTERNAL", "Invalid approval preview.")
+        }
+        let account = try accountSnapshotProvider?().first { $0["account_id"]?.stringValue == accountID }
+        let request = AgentApprovalCenter.Request(sessionID: sessionID, planID: planID,
+            clientLabel: clientLabels[sessionID], actionKind: plan["action_kind"]?.stringValue ?? "state_change",
+            accountName: account?["display_name"]?.stringValue ?? accountID,
+            accountType: account?["type"]?.stringValue ?? "",
+            summary: plan["summary"]?.stringValue ?? "",
+            affectedCount: plan["affected_count"]?.intValue ?? 0,
+            sampleTitles: plan["sample_titles"]?.arrayValue?.compactMap(\.stringValue) ?? [],
+            notice: plan["retention_notice"]?.stringValue ?? "", expiresAt: expiresAt,
+            summaryEnglish: plan["summary_en"]?.stringValue)
+        approvalCenter.register(request, approve: { [weak self] in
+            guard let self else { throw AgentFailure("APP_NOT_RUNNING", "PaperRss has stopped.") }
+            _ = try await self.confirmStatePlan(planID: planID, sessionID: sessionID)
+        }, deny: { [weak self] in
+            guard let self else { throw AgentFailure("APP_NOT_RUNNING", "PaperRss has stopped.") }
+            try await self.denyStatePlan(planID: planID, sessionID: sessionID)
+        })
+    }
+
+    func disconnect(sessionID: String) async {
+        clientLabels.removeValue(forKey: sessionID)
+        approvalCenter.remove(sessionID: sessionID)
         let previous = sessions.removeValue(forKey: sessionID)
         await previous?.revoke()
     }
 
     private func revokeSessions() async {
+        approvalCenter.removeAll()
+        clientLabels.removeAll()
         generation = UUID()
         let previous = Array(sessions.values)
         sessions.removeAll()
@@ -241,5 +317,13 @@ final class AgentBridgeController: AgentBridge {
         stopTransport()
         await revokeSessions()
         database = nil
+    }
+}
+
+/// App-owned executor. The closure runs on the main actor before touching AppStore.
+private struct AppAgentWriteExecutor: AgentWriteExecutor {
+    let action: @MainActor @Sendable (String, [String], AgentStateField, Bool, Date) async throws -> AgentWriteResult
+    func execute(accountID: String, articleIDs: [String], field: AgentStateField, value: Bool, expiresAt: Date) async throws -> AgentWriteResult {
+        try await action(accountID, articleIDs, field, value, expiresAt)
     }
 }

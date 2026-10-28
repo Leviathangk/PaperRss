@@ -71,3 +71,51 @@ extension AgentBridgeControllerTests {
 private extension AccountType {
     static let allAgentFixtureTypes: [AccountType] = [.local, .iCloud, .freshRSS, .miniflux]
 }
+
+/// Uses volatile defaults and repository-local fixtures; never reads the production library.
+private final class AgentVolatileDefaults: UserDefaults, @unchecked Sendable {
+    private var enabled = true
+    override func bool(forKey defaultName: String) -> Bool { enabled }
+    override func set(_ value: Bool, forKey defaultName: String) { enabled = value }
+}
+
+extension AgentBridgeControllerTests {
+    func testApprovalRoutesToOwningSocketSessionAndRevocationClearsCenter() async throws {
+        let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("build/agent-bridge-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let database = try LibraryDatabase(databaseURL: directory.appendingPathComponent("library.sqlite"))
+        let provider = LocalAccountProvider(database: database)
+        try provider.ensureAccountExists()
+        let defaults = AgentVolatileDefaults()
+        let center = AgentApprovalCenter(showPanel: false)
+        let bridge = AgentBridgeController(defaults: defaults, directory: directory, approvalCenter: center)
+        bridge.attachForTesting(database: database)
+        let arguments: [String: AgentJSON] = ["account_id": .string("local-default"), "scope": .string("account")]
+        let first = try await bridge.call(sessionID: "socket-a", tool: "paperrss_plan_mark_read", arguments: arguments)
+        let planID = try XCTUnwrap(first["plan_id"]?.stringValue)
+        XCTAssertEqual(center.pending.count, 1)
+        XCTAssertEqual(center.pending.first?.sessionID, "socket-a")
+        _ = try await bridge.call(sessionID: "socket-b", tool: "paperrss_status", arguments: [:])
+        do {
+            _ = try await bridge.confirmStatePlan(planID: planID, sessionID: "socket-b")
+            XCTFail("Another session must not approve")
+        } catch let error as AgentFailure { XCTAssertEqual(error.code, "CONFLICT") }
+        await center.approve(try XCTUnwrap(center.pending.first))
+        let status = try await bridge.call(sessionID: "socket-a", tool: "paperrss_status", arguments: ["plan_id": .string(planID)])
+        XCTAssertEqual(status["plan_state"], .string("approved"))
+        XCTAssertNotNil(status["approval_id"]?.stringValue)
+        XCTAssertTrue(center.pending.isEmpty)
+        _ = try await bridge.call(sessionID: "socket-a", tool: "paperrss_plan_mark_read", arguments: arguments)
+        _ = try await bridge.call(sessionID: "socket-b", tool: "paperrss_plan_mark_read", arguments: arguments)
+        await bridge.disconnect(sessionID: "socket-a")
+        XCTAssertEqual(center.pending.map(\.sessionID), ["socket-b"])
+        await center.deny(try XCTUnwrap(center.pending.first))
+        XCTAssertTrue(center.pending.isEmpty)
+        _ = try await bridge.call(sessionID: "socket-b", tool: "paperrss_plan_mark_read", arguments: arguments)
+        defaults.set(false, forKey: AgentBridgeController.enableKey)
+        try await bridge.refreshEnablement()
+        XCTAssertTrue(center.pending.isEmpty)
+        await bridge.stop()
+    }
+}

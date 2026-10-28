@@ -270,6 +270,7 @@ struct SettingsView: View {
     @State private var addFreshRSSError: String?
     @State private var addFreshRSSSuccess: String?
     #if os(macOS)
+    @ObservedObject private var agentApprovals = AgentBridgeController.shared.approvalCenter
     @AppStorage(AgentBridgeController.enableKey) private var agentMCPEnabled = false
     @State private var agentMCPInstallCopied: String?
     @State private var agentMCPInstallError: String?
@@ -2953,6 +2954,12 @@ struct SettingsView: View {
     #if os(macOS)
     private var agentMCPSettings: some View {
         VStack(alignment: .leading, spacing: 20) {
+            if !agentApprovals.pending.isEmpty {
+                settingsGroup(I18N.shared.localized("待批准的操作", "Pending Approvals")) {
+                    AgentApprovalList(center: agentApprovals)
+                        .frame(height: 340).padding(18)
+                }
+            }
             settingsGroup(I18N.shared.localized("外部助手", "External Assistants")) {
                 settingsRow(I18N.shared.localized("连接外部助手", "Connect External Assistants"), description: I18N.shared.localized("允许助手通过 MCP 读取本地订阅与文章元数据。", "Allow assistants to read local subscriptions and article metadata via MCP.")) {
                     Toggle(I18N.shared.localized("连接外部助手", "Connect External Assistants"), isOn: $agentMCPEnabled)

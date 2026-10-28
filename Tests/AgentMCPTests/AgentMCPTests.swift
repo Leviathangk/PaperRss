@@ -52,14 +52,14 @@ final class AgentMCPTests: XCTestCase {
         XCTAssertEqual(reply?["result"]?["protocolVersion"], .string("2025-03-26"))
     }
 
-    func testRegistrationHasElevenStrictToolsAndSecurityAnnotations() async throws {
+    func testRegistrationHasThirteenStrictToolsAndSecurityAnnotations() async throws {
         let server = AgentMCPServer(bridge: AgentUnavailableBridge())
         await initialize(server)
         let reply = await server.handle(request("tools/list"))
         let tools = try XCTUnwrap(reply?["result"]?["tools"]?.arrayValue)
         XCTAssertEqual(Set(tools.compactMap { $0["name"]?.stringValue }), Set([
             "paperrss_status", "paperrss_open", "paperrss_list_feeds", "paperrss_list_articles", "paperrss_get_article",
-            "paperrss_get_content", "paperrss_plan_state_change", "paperrss_apply_state_change",
+            "paperrss_get_content", "paperrss_plan_state_change", "paperrss_plan_mark_read", "paperrss_apply_plan", "paperrss_apply_state_change",
             "paperrss_add_feed", "paperrss_rename_feed", "paperrss_remove_feed"
         ]))
         XCTAssertEqual(Set(tools.compactMap { $0["name"]?.stringValue }), Set(AgentToolCatalog.names))
@@ -73,6 +73,40 @@ final class AgentMCPTests: XCTestCase {
         let apply = try XCTUnwrap(tools.first { $0["name"]?.stringValue == "paperrss_apply_state_change" })
         XCTAssertEqual(apply["annotations"]?["destructiveHint"], .bool(true))
         XCTAssertEqual(apply["annotations"]?["idempotentHint"], .bool(true))
+    }
+
+    func testMarkReadScopesAndGenericApplySchema() async throws {
+        let definition = try XCTUnwrap(AgentMCPTools.definitions.first { $0["name"] == .string("paperrss_plan_mark_read") })
+        XCTAssertEqual(definition["annotations"]?["readOnlyHint"], .bool(false))
+        XCTAssertEqual(definition["annotations"]?["destructiveHint"], .bool(false))
+        let bridge = RecordingBridge()
+        let forwarding = AgentMCPServer(bridge: bridge)
+        await initialize(forwarding)
+        for scope in ["feed", "folder", "account"] {
+            var arguments: [String: AgentJSON] = ["account_id": .string("a"), "scope": .string(scope),
+                "before": .string("2026-10-28T00:00:00.000Z")]
+            if scope == "feed" { arguments["feed_id"] = .string("f") }
+            if scope == "folder" { arguments["folder"] = .string("Science") }
+            let reply = await forwarding.handle(call("paperrss_plan_mark_read", arguments: arguments))
+            XCTAssertEqual(reply?["result"]?["isError"], .bool(false))
+            let recorded = await bridge.lastCall
+            XCTAssertEqual(recorded?.1, arguments)
+        }
+        for extra: [String: AgentJSON] in [
+            ["scope": .string("feed")], ["scope": .string("folder")],
+            ["scope": .string("account"), "feed_id": .string("f")],
+            ["scope": .string("feed"), "feed_id": .string("f"), "folder": .string("x")],
+            ["scope": .string("account"), "before": .string("tomorrow")],
+            ["scope": .string("account"), "approval_id": .string("self-approved")]
+        ] {
+            var arguments = extra; arguments["account_id"] = .string("a")
+            XCTAssertThrowsError(try AgentMCPTools.validate(name: "paperrss_plan_mark_read", arguments: arguments))
+        }
+        let apply: [String: AgentJSON] = ["plan_id": .string("p"), "approval_id": .string("a"), "idempotency_key": .string("k")]
+        for name in ["paperrss_apply_plan", "paperrss_apply_state_change"] {
+            XCTAssertNoThrow(try AgentMCPTools.validate(name: name, arguments: apply))
+        }
+        XCTAssertThrowsError(try AgentMCPTools.validate(name: "paperrss_approve", arguments: apply))
     }
 
     func testOpenHasReadOnlyAnnotationsAndExactlyOneTarget() async throws {

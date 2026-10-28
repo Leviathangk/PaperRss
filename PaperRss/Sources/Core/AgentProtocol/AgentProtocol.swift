@@ -60,6 +60,6 @@ public protocol AgentBridge: Sendable {
 /// Shared discovery names keep the App status and helper tools/list aligned.
 public enum AgentToolCatalog {
     public static let names = ["status", "list_feeds", "list_articles", "get_article", "get_content", "open",
-                               "plan_state_change", "apply_state_change", "add_feed", "rename_feed", "remove_feed"]
+                               "plan_state_change", "plan_mark_read", "apply_plan", "apply_state_change", "add_feed", "rename_feed", "remove_feed"]
         .map { "paperrss_" + $0 }
 }

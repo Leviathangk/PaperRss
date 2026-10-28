@@ -22,8 +22,9 @@ enum PaperRssAgentMain {
         let enabled = ProcessInfo.processInfo.environment["PAPERRSS_AGENT_ENABLED"] == "1"
         let directory = ProcessInfo.processInfo.environment["PAPERRSS_AGENT_SOCKET_DIR"]
             .map { URL(fileURLWithPath: $0, isDirectory: true) } ?? AgentIPCPaths.defaultDirectory
+        let clientLabel = args.firstIndex(of: "--client").map { args[$0 + 1] }
         let bridge: any AgentBridge = args.contains("--fixture")
-            ? AgentFixtureBridge(enabled: enabled) : AgentIPCClientBridge(enabled: enabled, directory: directory)
+            ? AgentFixtureBridge(enabled: enabled) : AgentIPCClientBridge(enabled: enabled, directory: directory, clientLabel: clientLabel)
         // --client is a diagnostic label only, never an authentication identity.
         let server = AgentMCPServer(bridge: bridge)
         let sink = OutputSink()

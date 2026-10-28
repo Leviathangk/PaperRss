@@ -2,6 +2,9 @@ import Combine
 import Foundation
 import GRDB
 import SwiftUI
+#if SWIFT_PACKAGE
+import PaperRssAgentProtocol
+#endif
 
 public enum AppTheme: String, CaseIterable, Codable, Identifiable, Sendable {
     case system
@@ -2334,6 +2337,45 @@ public final class AppStore: ObservableObject {
         } else {
             markStarred(entryID: entryID, starred: true)
         }
+    }
+
+    /// Agent writes share the UI repository/outbox path, but propagate failures to the receipt.
+    /// Validation and mutations stay in one transaction; iCloud capture observes this commit.
+    public func applyAgentStateChange(accountID: String, articleIDs: [String],
+                                      field: AgentStateField, value: Bool, expiresAt: Date) throws -> AgentWriteResult {
+        let result = try libraryDatabase.write { db -> AgentWriteResult in
+            try Task.checkCancellation()
+            guard expiresAt > Date() else { throw AgentFailure("CONFLICT", "Plan expired before execution.") }
+            guard let account = try AccountRecord.fetchOne(db, key: accountID), account.isEnabled,
+                  !account.isArchived, AccountType(rawValue: account.type) != nil else {
+                throw AgentFailure("NOT_FOUND", "Enabled account not found.")
+            }
+            for id in articleIDs {
+                guard let item = try localProvider.articleRepository.fetchItem(id: id, in: db),
+                      item.accountID == accountID,
+                      let feed = try localProvider.feedRepository.fetchFeed(id: item.feedID, in: db),
+                      feed.accountID == accountID, !feed.isDeleted else {
+                    throw AgentFailure("NOT_FOUND", "Article not found in the approved account.")
+                }
+            }
+            var applied = 0
+            for id in articleIDs {
+                guard let state = try localProvider.stateRepository.fetchState(itemID: id, in: db) else {
+                    throw AgentFailure("CONFLICT", "Article state missing.")
+                }
+                if (field == .read ? state.isRead : state.isStarred) == value { continue }
+                applied += 1
+                switch field {
+                case .read: try localProvider.stateRepository.markRead(itemID: id, isRead: value, in: db)
+                case .starred: try localProvider.stateRepository.markStarred(itemID: id, isStarred: value, in: db)
+                }
+            }
+            return AgentWriteResult(appliedCount: applied, skippedCount: articleIDs.count - applied,
+                sync: account.type == AccountType.local.rawValue ? "local_only" : "queued_for_sync")
+        }
+        reloadState()
+        Task { [weak self] in await self?.syncCoordinator.pushAllPendingArticleStates() }
+        return result
     }
 
     public func markAllRead(

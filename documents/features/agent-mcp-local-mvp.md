@@ -13,7 +13,7 @@
 - App 初始化库成功后取得 `owner` 排他锁。OFF 保留 owner 锁和 disabled 状态，移除数据 listener/token，并撤销已有会话；进程退出释放锁。helper 据此区分 `NOT_ENABLED` 与 `APP_NOT_RUNNING`。崩溃留下的 socket 只有在持有 owner 锁且确认无活跃 listener 后才清理；拒绝覆盖活跃实例。OFF 只留下状态文件，不提供库查询端口。
 - UDS 采用长度前缀 JSON；请求上限 64 KiB、响应上限 1 MiB，有限连接数、15 秒阻塞读写超时；认证后空闲等待不主动断开，阻塞 I/O 在后台队列。stdio stdout 只输出 JSON-RPC。无 TCP/HTTP 端口、launchd、云连接、自动打开 App 或全库导出。
 - 元数据允许所有已启用账户 unread/starred/selection；正文最多选 20 篇，每篇最多 20,000 字符，默认 8,000，selection 有效 15 分钟。每会话共享默认 100,000 字符预算及每分钟 60 个业务调用。正文仅用已存内容，不抓网页、不写缓存、不隐式标已读。文章文本全部视为不可信输入。
-- 真实 App 的 state.write 仍关闭，Feed CRUD 为 stub；未实现 #57 滚动标已读。本轮没有更改同步、保留或清理策略。
+- 真实 App 通过 `state.write.approval` 开放人工批准后的状态写入（见 Batch 2）；Feed CRUD 仍为 stub。未更改保留或清理策略。
 
 ## 构建与启用
 
@@ -77,7 +77,7 @@ args = ["serve", "--stdio", "--client", "oliver-qa"]
 PAPERRSS_AGENT_ENABLED = "1"
 ```
 
-保存后重新连接对应 MCP server。这里没有修改任何全局客户端配置，也没有验收三个客户端 GUI。stdio 支持 initialize、ping、tools/list、tools/call、cancelled 通知；工具数 11，失败包含 `isError: true` 与结构化错误码。协议版本覆盖 2025-11-25、2025-06-18、2024-11-05；不是完整 MCP conformance 声明。
+保存后重新连接对应 MCP server。这里没有修改任何全局客户端配置，也没有验收三个客户端 GUI。stdio 支持 initialize、ping、tools/list、tools/call、cancelled 通知；工具数 13，失败包含 `isError: true` 与结构化错误码。协议版本覆盖 2025-11-25、2025-06-18、2024-11-05；不是完整 MCP conformance 声明。
 
 ## Debug 正文授权路径
 
@@ -125,7 +125,7 @@ SwiftPM 备选将可执行文件替换为 `.build/debug/PaperRssDesktop`。不�
 6. 同一连接伪造 selection 必须 UNAUTHORIZED；业务错误后有效 selection 仍可使用。另开 helper 不能复用该 selection。
 7. helper 不设置启用环境变量 → NOT_ENABLED；App 运行但 flag OFF → NOT_ENABLED；App 退出/无 listener/崩溃残留 socket → APP_NOT_RUNNING。再次打开 App 后可重新连接；旧 selection 失效。过早连 helper 的短暂 `APP_NOT_RUNNING` 见置顶第 3 条。
 8. 检查目录 0700、socket/token 0600（只查看权限，不把 token 内容贴群）。普通关闭 App 后应移除 socket/token；owner 文件可能保留但不再持锁。再次启动不得覆盖其它活跃实例。
-9. Feed 写工具应明确 UNSUPPORTED；真实 App 的状态写工具应拒绝，不把 Core fixture 的写入测试当成真实写入能力。
+9. Feed 写工具应明确 UNSUPPORTED；状态写工具按下方 Batch 2 流程，未在 App 点击批准必须拒绝执行。
 
 离线 smoke 仍支持：
 
@@ -171,9 +171,9 @@ python3 scripts/build-support.py --lane tests --temporary -- \
 
 ## 剩余缺口
 
-- 正式配对/确认/撤销 UI、签名 helper bundle、安装与升级链路尚未完成；只验证当前用户 token 信任模型，不保证 Mac App Store sandbox 可用。
+- 逐客户端身份配对、正文确认 UI 和升级链路仍待完善；状态写入已有 App 审批 UI（Batch 2）；只验证当前用户 token 信任模型，不保证 Mac App Store sandbox 可用。
 - 真实 App/Claude Desktop/Cursor/Codex GUI 三端尚需按上述步骤人工验收。自动化使用 App 相同 controller/service 和隔离 SQLite 库，不是生产阅读库验收。
-- 元数据支持全部已启用账户；Feed CRUD、真实状态写入仍未开放。读取库内数据不代表跨设备/iCloud/远端同步已验收。
+- 元数据与人工批准的状态写入支持全部已启用账户；Feed CRUD 仍未开放。读取库内数据不代表跨设备/iCloud/远端同步已验收。
 - 会话/selection/游标不持久化；断开或重启失效。预算为每连接，重新连接可获得新预算；正式版需要跨连接全局配额与可见授权管理。
 - 分页是查询/会话绑定的短期 live-offset cursor，非冻结快照；并发增删可能重复或遗漏，每次最多扫描 500 候选。正文现有的会话限量不等于不可绕过的永久出库上限。
 - URL 已过滤 userinfo/query/fragment，但无法识别所有 path 内秘密；正文授权仍需人工审查隐私和内容使用范围。本地传输不等于外部模型处理在本机。
@@ -233,7 +233,7 @@ DeepSeek dsh 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 - `app: {version, build, debug}`：版本和构建号取 App 进程的 Bundle；SwiftPM 无 Bundle 元数据时为 `unknown`，绝不采用 helper 版本冒充。
 - `accounts[]: {account_id, type, display_name, enabled, server_host, feed_count, unread_count, last_sync_at, capabilities}`：包含 App 已知的禁用账户；禁用账户 capabilities 为空。type 为 `local` / `iCloud` / `freshRSS` / `miniflux`。
 - `server_host` 仅服务器账户返回 `host[:port]`，其他账户为 null；不返回 URL 的 userinfo、路径、查询或任何凭据字段。`last_sync_at` 为已知同步完成时间 ISO8601 或 null，本地账户可用最近 Feed 刷新时间。
-- 顶层 `capabilities` 为当前会话的 `metadata.read`、`content.read.selection`、`ui.open`；DB-only 测试未注入 opener 时没有 `ui.open`。`tools` 是 helper 公布的 11 个工具名称，包含尚未开放执行的写入契约；是否可执行以 capability / App 审批为准。
+- 顶层 `capabilities` 为当前会话的 `metadata.read`、`content.read.selection`、`ui.open`；DB-only 测试未注入 opener 时没有 `ui.open`。`tools` 是 helper 公布的 13 个工具名称，包含尚未开放执行的写入契约；是否可执行以 capability / App 审批为准。
 
 快照由 attach(to:) 注入的 MainActor provider 读取 AppStore 账户/同步状态和既有 LibraryDatabase；不刷新、不同步、不访问网络。账户启停在后续请求中重新检查，不重置会话预算或授权。
 
@@ -243,3 +243,40 @@ UI 定位需要运行中的 App，helper 不负责启动 App。真实窗口、�
 
 
 本批自动化结果：仓库内 module cache 下 `swift build --disable-sandbox` 通过；Agent 相关筛选共 67 项，49 项通过，18 项因执行环境禁止绑定 Unix socket（`Cannot bind private listener` / `Operation not permitted`）受阻。非 IPC 的 45 项全部通过，包含新增快照脱敏、远程账户读取、open 与预算、动态自动已读抑制及 dsh shell 测试。dsh 另有 10 组实际命令/YAML 解析验证通过。完整日志：`build/reports/agent-batch1-build-local-cache.log`、`build/reports/agent-batch1-tests.log`、`build/reports/install-command-validation.log`。未启动真实 App、未修改客户端配置，Xcode 与窗口交互验收未执行。
+
+
+## Batch 2：App 人工审批与批量已读（2026-10-28）
+
+所有已启用的 local、iCloud、FreshRSS、Miniflux 账户均可创建状态计划；实际写入必须由用户在 PaperRss 内点击「批准」。helper、MCP/IPC 参数、环境变量和 Release 启动参数均不能签发批准。`--client` 通过已认证的 IPC 握手作为诊断标签传入，显示为「来自 <label>（自报）」；缺失时显示「未知助手」。它不用于鉴权，不证明客户端身份。
+
+计划出现时 App 展示「Agent 请求批准」非模态浮动面板，并请求 informational attention，不激活 App、不抢当前输入焦点。设置 → AI → MCP 顶部「待批准的操作」显示相同请求与批准/拒绝按钮。批准按钮不绑定 Return。界面展示账户名称和类型、操作、影响篇数、至多 5 个截断的纯文本示例标题、同步/保留提示和到期时间；标题与标签均是不可信文本。请求按 `(sessionID, planID)` 隔离，拒绝后不可执行，过期自动移除；关闭 MCP 或断开连接移除对应待批准请求并撤销会话。
+
+流程（文本图）：
+
+```text
+MCP client → plan_state_change / plan_mark_read
+           → App 冻结文章 ID 和目标状态，返回 pending 计划
+           → App 浮动面板 + 设置中的待批准操作
+用户点击「拒绝」 → owning session.deny → status: denied → apply: DENIED
+用户点击「批准」 → owning session.approve → status: approved + approval_id
+MCP client → status {plan_id} → apply_plan {plan_id, approval_id, idempotency_key}
+           → 再检账户/文章归属及有效期 → AppStore 正常写入路径
+           → 本地提交 + 远端 pending-state/iCloud 同步路径 + UI 计数刷新
+           → receipt；相同 key 重试返回同一 receipt
+```
+
+| 工具 | 参数与语义 |
+| --- | --- |
+| `paperrss_plan_mark_read`（新增） | `account_id`、`scope: feed|folder|account`；feed 必填 `feed_id`，folder 必填 `folder`（名称或 ID）。可用 ISO8601 `before` 限定发布时间，缺失发布时间时用接收时间。快照最多 5000 篇未读，超过返回 `INVALID_ARGUMENT` 并要求缩小范围。计划不改变文章状态，`readOnlyHint=false`、`destructiveHint=false`。 |
+| `paperrss_plan_state_change` | 1–50 个明确文章 ID，`field: read|starred`、`value`；使用同一 App 审批流程。 |
+| `paperrss_apply_plan`（新增） | `plan_id`、`approval_id`、`idempotency_key`；执行任何已批准计划。只处理冻结的 ID，新到文章不受影响；重新检查账户归属、文章存在及有效期，跳过已满足目标状态的文章。 |
+| `paperrss_apply_state_change` | `paperrss_apply_plan` 的向后兼容别名，参数和批准要求相同。 |
+| `paperrss_status` | 新增 `pending_approvals`；指定 `plan_id` 返回 `pending|approved|denied|expired|committed`。仅 `approved` 状态包含 `approval_id`。 |
+
+计划响应包含 `plan_id`、`summary`、`affected_count`、`expires_at`、`approval: "pending"` 与 `next_step`，指示先请求用户在 PaperRss 批准，再查 status、最后 apply。回执包含 `applied_count`、`skipped_count` 和 `sync: local_only|queued_for_sync|synced`。`queued_for_sync` 表示交给正常同步队列，不表示服务器或其他设备已确认；真实远端收敛仍由人工验收。
+
+Core 使用注入的 `AgentWriteExecutor`，真实 App 通过 AppStore/provider 的正常状态写入路径更新，FreshRSS/Miniflux 进入待同步队列，iCloud 使用既有同步路径；不对远端账户绕过同步直接写 SQL。单元测试使用隔离数据库与 recording executor。批量计划冻结的是文章集合，不会因为新文章到达扩大已批准范围。
+
+本批验收边界：自动化不启动真实 PaperRss、不读取或修改用户阅读库及客户端配置；沙箱可能阻断 Unix socket 与缓存。原生 Xcode 构建、非抢焦点窗口行为和真实同步由用户补验，历史批次测试数字不能作为本批通过证据。
+
+本批自动化（2026-10-28）：使用仓库内 module cache，`swift build --disable-sandbox` 通过。最终非 socket 筛选 45 项全部通过：AgentLibraryServiceTests 26、AgentMCPTests 13、AgentApprovalCenterTests 5、会话审批路由桥接测试 1。此前包含 IPC 的筛选中另有 2 项通过，10 项受沙箱禁止 Unix socket bind 阻断（`Cannot bind private listener` / `Operation not permitted`），不能视为 IPC 通过。日志：`build/reports/agent-batch2-build-final.log`、`build/reports/agent-batch2-tests-final.log`、`build/reports/agent-batch2-tests.log`。新增源码由 Package.swift 的目录 target 与 Xcode filesystem-synchronized group 自动纳入；未启动真实 App，未执行 Git 写操作。

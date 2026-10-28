@@ -1,0 +1,81 @@
+import Foundation
+import XCTest
+@testable import PaperRssDesktop
+
+@MainActor
+final class AgentApprovalCenterTests: XCTestCase {
+    private func request(session: String = "socket-a", plan: String = "plan", expiry: Date = Date().addingTimeInterval(60)) -> AgentApprovalCenter.Request {
+        .init(sessionID: session, planID: plan, clientLabel: "Test helper", actionKind: "mark_read",
+              accountName: "Synthetic", accountType: "freshRSS", summary: "Mark synthetic articles read",
+              affectedCount: 2, sampleTitles: ["Untrusted **title**"], notice: "Queued for sync", expiresAt: expiry)
+    }
+
+    func testKeysIncludeSessionAndDisconnectOnlyRemovesOwner() {
+        let center = AgentApprovalCenter(showPanel: false)
+        center.register(request(), approve: {}, deny: {})
+        center.register(request(session: "socket-b"), approve: {}, deny: {})
+        center.register(request(), approve: { XCTFail("Duplicate must not replace callback") }, deny: {})
+        XCTAssertEqual(center.pending.count, 2)
+        center.remove(sessionID: "socket-a")
+        XCTAssertEqual(center.pending.map(\.sessionID), ["socket-b"])
+        center.removeAll()
+        XCTAssertTrue(center.pending.isEmpty)
+    }
+
+    func testApproveAndDenyRunOnlyChosenCallbackAndRemoveRequest() async {
+        let center = AgentApprovalCenter(showPanel: false)
+        var approved = 0
+        var denied = 0
+        let first = request()
+        let second = request(plan: "second")
+        center.register(first, approve: { approved += 1 }, deny: { denied += 1 })
+        center.register(second, approve: { approved += 1 }, deny: { denied += 1 })
+        XCTAssertEqual(approved, 0)
+        await center.approve(first)
+        await center.approve(first)
+        await center.deny(second)
+        XCTAssertEqual(approved, 1)
+        XCTAssertEqual(denied, 1)
+        XCTAssertTrue(center.pending.isEmpty)
+    }
+
+    func testExpiredAndRemovedRequestsCannotApprove() async {
+        var now = Date()
+        let center = AgentApprovalCenter(showPanel: false, clock: { now })
+        let first = request(expiry: now.addingTimeInterval(10))
+        center.register(first, approve: { XCTFail("Expired") }, deny: { XCTFail("Expired") })
+        now = now.addingTimeInterval(11)
+        await center.approve(first)
+        XCTAssertTrue(center.pending.isEmpty)
+        let second = request(expiry: now.addingTimeInterval(10))
+        center.register(second, approve: { XCTFail("Revoked") }, deny: { XCTFail("Revoked") })
+        center.removeAll()
+        await center.approve(second)
+        XCTAssertTrue(center.pending.isEmpty)
+    }
+
+    func testExpiryRemovesRequestAutomatically() async throws {
+        let center = AgentApprovalCenter(showPanel: false)
+        center.register(request(expiry: Date().addingTimeInterval(0.02)), approve: {}, deny: {})
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertTrue(center.pending.isEmpty)
+    }
+
+    func testDecisionFailureStaysPendingAndCanRetry() async {
+        struct Failure: Error {}
+        let center = AgentApprovalCenter(showPanel: false)
+        let item = request()
+        var attempts = 0
+        center.register(item, approve: {
+            attempts += 1
+            if attempts == 1 { throw Failure() }
+        }, deny: {})
+        await center.approve(item)
+        XCTAssertEqual(center.pending.count, 1)
+        XCTAssertTrue(center.failed.contains(item.id))
+        XCTAssertTrue(center.busy.isEmpty)
+        await center.approve(item)
+        XCTAssertTrue(center.pending.isEmpty)
+        XCTAssertTrue(center.failed.isEmpty)
+    }
+}

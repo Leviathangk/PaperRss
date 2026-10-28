@@ -58,6 +58,26 @@ final class AgentIPCTests: XCTestCase, @unchecked Sendable {
         await first.disconnect()
         await fulfillment(of: [disconnected], timeout: 5)
     }
+    func testDiagnosticClientLabelIsHandshakeMetadataOnly() async throws {
+        let dir = directory()
+        let labels = DiagnosticLabels()
+        let server = AgentIPCServer(directory: dir, handler: { session, _, arguments in
+            .object(["label": await labels.value(session).map(AgentJSON.string) ?? .null,
+                     "arguments": .object(arguments)])
+        }, connected: { session, label in await labels.set(session, label) })
+        defer { server.stop(); try? FileManager.default.removeItem(at: dir) }
+        try server.start()
+        let named = AgentIPCClientBridge(enabled: true, directory: dir, clientLabel: "helper <untrusted>")
+        let anonymous = AgentIPCClientBridge(enabled: true, directory: dir)
+        let response = try await named.call(tool: "paperrss_status", arguments: [:])
+        XCTAssertEqual(response["label"], .string("helper <untrusted>"))
+        XCTAssertEqual(response["arguments"], .object([:]))
+        let missing = try await anonymous.call(tool: "paperrss_status", arguments: [:])
+        XCTAssertEqual(missing["label"], .null)
+        let oversized = AgentIPCClientBridge(enabled: true, directory: dir, clientLabel: String(repeating: "x", count: 129))
+        await expect("INVALID_ARGUMENT") { _ = try await oversized.call(tool: "paperrss_status", arguments: [:]) }
+        await named.disconnect(); await anonymous.disconnect()
+    }
     func testPrivatePermissionsAndUnsafeDirectoryRejected() throws {
         let dir = directory()
         let server = AgentIPCServer(directory: dir) { _, _, _ in .null }
@@ -152,11 +172,15 @@ final class AgentIPCTests: XCTestCase, @unchecked Sendable {
             throw XCTSkip("Build paperrss-agent before product smoke")
         }
         let dir = directory()
-        let server = AgentIPCServer(directory: dir) { _, tool, _ in
-            if tool == "paperrss_status" { return .object(["real_ipc": .bool(true), "fixture": .bool(false)]) }
+        let labels = DiagnosticLabels()
+        let server = AgentIPCServer(directory: dir, handler: { session, tool, _ in
+            if tool == "paperrss_status" {
+                return .object(["real_ipc": .bool(true), "fixture": .bool(false),
+                                "client_label": await labels.value(session).map(AgentJSON.string) ?? .null])
+            }
             if tool == "paperrss_list_feeds" { return .object(["feeds": .array([])]) }
             return .object(["articles": .array([])])
-        }
+        }, connected: { session, label in await labels.set(session, label) })
         defer { server.stop(); try? FileManager.default.removeItem(at: dir) }
         try server.start()
         let process = Process(), input = Pipe(), output = Pipe(), errors = Pipe()
@@ -201,6 +225,7 @@ final class AgentIPCTests: XCTestCase, @unchecked Sendable {
             XCTAssertNotNil(result["result"])
             if tool == "paperrss_status" {
                 XCTAssertEqual(result["result"]?["structuredContent"]?["data"]?["real_ipc"], .bool(true))
+                XCTAssertEqual(result["result"]?["structuredContent"]?["data"]?["client_label"], .string("ipc-product-test"))
             }
         }
     }
@@ -253,4 +278,10 @@ final class AgentIPCTests: XCTestCase, @unchecked Sendable {
         guard count < 65_536 else { throw POSIXError(.EIO) }
         return try JSONDecoder().decode(AgentJSON.self, from: readExactly(count))
     }
+}
+
+private actor DiagnosticLabels {
+    private var labels: [String: String] = [:]
+    func set(_ session: String, _ label: String?) { labels[session] = label }
+    func value(_ session: String) -> String? { labels[session] }
 }

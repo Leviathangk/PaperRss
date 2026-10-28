@@ -80,9 +80,9 @@ public struct AgentFixtureBridge: AgentBridge {
             return Self.article
         case "paperrss_get_content":
             throw AgentFailure("UNAUTHORIZED", "Fixture has no approved content selection. A client cannot issue its own approval.")
-        case "paperrss_plan_state_change", "paperrss_apply_state_change",
+        case "paperrss_plan_state_change", "paperrss_plan_mark_read", "paperrss_apply_plan", "paperrss_apply_state_change",
              "paperrss_add_feed", "paperrss_rename_feed", "paperrss_remove_feed":
-            throw AgentFailure("CONFIRMATION_REQUIRED", "Fixture is read-only. Production App approval bridge is not implemented.")
+            throw AgentFailure("CONFIRMATION_REQUIRED", "Fixture is read-only and cannot issue approvals. Use the running PaperRss App for human-approved writes.")
         default:
             throw AgentFailure("INVALID_ARGUMENT", "Unknown tool.")
         }

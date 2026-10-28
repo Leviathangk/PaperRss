@@ -170,9 +170,13 @@ final class AgentIPCIntegrationTests: XCTestCase {
             await expectFailure("INVALID_ARGUMENT") {
                 try await client.call(tool: "authorizeContent", arguments: ["article_ids": .array([.string("a")])])
             }
-            await expectFailure("UNAUTHORIZED") {
-                try await client.call(tool: "paperrss_plan_state_change", arguments: ["account_id": account,
-                    "article_ids": .array([.string("a")]), "field": .string("read"), "value": .bool(true)])
+            // Planning is allowed, but only an App UI click can approve; a client-invented approval is rejected.
+            let plan = try await client.call(tool: "paperrss_plan_state_change", arguments: ["account_id": account,
+                "article_ids": .array([.string("a")]), "field": .string("read"), "value": .bool(true)])
+            XCTAssertNil(plan["approval_id"])
+            await expectFailure("CONFIRMATION_REQUIRED") {
+                try await client.call(tool: "paperrss_apply_plan", arguments: ["plan_id": plan["plan_id"] ?? .null,
+                    "approval_id": .string("client-issued"), "idempotency_key": .string("k1")])
             }
             XCTAssertFalse(try fixture.state("a").isRead)
         }

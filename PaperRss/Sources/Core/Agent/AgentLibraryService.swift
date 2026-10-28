@@ -12,6 +12,8 @@ public actor AgentLibraryService: AgentBridge {
     private let engine: ArticlePreparationEngine
     private let clock: @Sendable () -> Date
     private let opener: (@MainActor @Sendable (AgentOpenRequest) throws -> Void)?
+    private let writeExecutor: (any AgentWriteExecutor)?
+    private var applying = false
     private var policy: AgentAccessPolicy
     private var remainingCharacters: Int
     private var requestTimes: [Date] = []
@@ -23,6 +25,7 @@ public actor AgentLibraryService: AgentBridge {
     private struct PendingPlan {
         let dto: AgentStatePlan
         let before: [String: ArticleStateRecord]
+        var denied = false
         var approval: String?
         var receipt: AgentStateReceipt?
     }
@@ -45,6 +48,7 @@ public actor AgentLibraryService: AgentBridge {
                 policy: AgentAccessPolicy = AgentAccessPolicy(),
                 engine: ArticlePreparationEngine = ArticlePreparationEngine(),
                 clock: @escaping @Sendable () -> Date = { Date() },
+                writeExecutor: (any AgentWriteExecutor)? = nil,
                 opener: (@MainActor @Sendable (AgentOpenRequest) throws -> Void)? = nil) {
         self.database = database
         self.provider = LocalAccountProvider(accountID: accountID, database: database)
@@ -52,6 +56,7 @@ public actor AgentLibraryService: AgentBridge {
         self.engine = engine
         self.clock = clock
         self.opener = opener
+        self.writeExecutor = writeExecutor
         self.remainingCharacters = policy.outputCharacterBudget
     }
 
@@ -91,11 +96,23 @@ public actor AgentLibraryService: AgentBridge {
         guard var plan = plans[planID], plan.dto.expires_at > clock(), plan.receipt == nil else {
             throw AgentFailure("CONFLICT", "Plan is missing, expired or already committed.")
         }
+        guard !plan.denied else { throw AgentFailure("DENIED", "Plan was denied.") }
         try authorize(plan.dto.account_id, write: true)
         let approval = plan.approval ?? UUID().uuidString
         plan.approval = approval
         plans[planID] = plan
         return approval
+    }
+
+    /// Trusted App UI only. There is deliberately no IPC tool for approval or denial.
+    public func deny(planID: String) throws {
+        try requireEnabled()
+        guard var plan = plans[planID], plan.dto.expires_at > clock(), plan.receipt == nil, !applying else {
+            throw AgentFailure("CONFLICT", "Plan is unavailable or executing.")
+        }
+        plan.denied = true
+        plan.approval = nil
+        plans[planID] = plan
     }
 
     public func call(tool: String, arguments a: [String: AgentJSON]) async throws -> AgentJSON {
@@ -108,7 +125,7 @@ public actor AgentLibraryService: AgentBridge {
         requestTimes.append(now)
         cursors = cursors.filter { $0.value.expires > now }
         selections = selections.filter { $0.value.expires > now }
-        plans = plans.filter { $0.value.dto.expires_at > now || $0.value.receipt != nil }
+        // Keep bounded expired plans so status can still explain their terminal state.
         switch tool {
         case "paperrss_open": return try await open(a)
         case "paperrss_list_feeds": return try listFeeds(a)
@@ -121,7 +138,8 @@ public actor AgentLibraryService: AgentBridge {
             return try .encoding(metadata)
         case "paperrss_get_content": return try await content(a)
         case "paperrss_plan_state_change": return try plan(a)
-        case "paperrss_apply_state_change": return try apply(a)
+        case "paperrss_plan_mark_read": return try planMarkRead(a)
+        case "paperrss_apply_plan", "paperrss_apply_state_change": return try await apply(a)
         case "paperrss_add_feed", "paperrss_rename_feed", "paperrss_remove_feed":
             try authorize(try string(a, "account_id"))
             // Do not claim an approvable operation when feed deletion/redirect policy is unfinished.
@@ -134,7 +152,7 @@ public actor AgentLibraryService: AgentBridge {
         guard policy.enabled else {
             return .object(["version": .string("agent-spike-1"), "enabled": .bool(false),
                             "paired": .bool(false), "pair_state": .string("disabled"),
-                            "transport": .string("none"), "accounts": .array([])])
+                            "transport": .string("none"), "accounts": .array([]), "pending_approvals": .number(0)])
         }
         var data: [String: AgentJSON] = [
             "version": .string("agent-spike-1"), "enabled": .bool(true), "paired": .bool(false),
@@ -142,15 +160,16 @@ public actor AgentLibraryService: AgentBridge {
             "transport": .string("in_process_spike"),
             "accounts": .array(policy.accountIDs.sorted().map { .object([
                 "account_id": .string($0), "capabilities": .array(
-                    (["metadata.read", "content.read.selection"] + (policy.allowStateChanges ? ["state.write"] : [])).map { .string($0) })]) }),
+                    (["metadata.read", "content.read.selection"] + (policy.allowStateChanges ? ["state.write.approval"] : [])).map { .string($0) })]) }),
             "selection_ids": .array(selections.filter { $0.value.expires > clock() }.keys.sorted().map { .string($0) }),
+            "pending_approvals": .number(Double(plans.values.filter { !$0.denied && $0.approval == nil && $0.receipt == nil && $0.dto.expires_at > clock() }.count)),
             "remaining_characters": .number(Double(remainingCharacters))
         ]
         if let id = a["plan_id"]?.stringValue {
             guard let plan = plans[id] else { throw AgentFailure("NOT_FOUND", "Plan not found in this session.") }
             data["plan"] = try .encoding(plan.dto)
-            data["plan_state"] = .string(plan.receipt != nil ? "committed" : plan.dto.expires_at <= clock() ? "expired" : plan.approval == nil ? "pending" : "approved")
-            if plan.dto.expires_at > clock(), let approval = plan.approval { data["approval_id"] = .string(approval) }
+            data["plan_state"] = .string(plan.receipt != nil ? "committed" : plan.dto.expires_at <= clock() ? "expired" : plan.denied ? "denied" : plan.approval == nil ? "pending" : "approved")
+            if plan.receipt == nil, !plan.denied, plan.dto.expires_at > clock(), let approval = plan.approval { data["approval_id"] = .string(approval) }
             if let receipt = plan.receipt { data["receipt"] = try .encoding(receipt) }
         }
         if let id = a["operation_id"]?.stringValue {
@@ -178,8 +197,8 @@ public actor AgentLibraryService: AgentBridge {
               AccountType(rawValue: record.type) != nil else {
             throw AgentFailure("NOT_FOUND", "Enabled account not found.")
         }
-        if write && (account != provider.accountID || record.type != AccountType.local.rawValue) {
-            throw AgentFailure("UNSUPPORTED", "State changes support the local account only.")
+        if write && writeExecutor == nil && record.type != AccountType.local.rawValue {
+            throw AgentFailure("UNSUPPORTED", "Remote state changes require the App write executor.")
         }
     }
     private func string(_ a: [String: AgentJSON], _ key: String) throws -> String {
@@ -414,13 +433,87 @@ public actor AgentLibraryService: AgentBridge {
                 return (id, state)
             })
         }
+        let action = field == .read ? (value ? "标为已读" : "标为未读") : (value ? "加入收藏" : "取消收藏")
+        let englishAction = field == .read ? (value ? "Mark as read" : "Mark as unread") : (value ? "Star" : "Unstar")
+        return try storePlan(account: account, ids: ids, field: field, value: value, before: before,
+                             kind: "state_change", summary: "将 \(ids.count) 篇文章\(action)",
+                             summaryEnglish: "\(englishAction): \(ids.count) articles")
+    }
+
+    private func storePlan(account: String, ids: [String], field: AgentStateField, value: Bool,
+                           before: [String: ArticleStateRecord], kind: String, summary: String, summaryEnglish: String) throws -> AgentJSON {
+        guard plans.count < 100 else { throw AgentFailure("RATE_LIMITED", "Session plan capacity reached.") }
+        let titles = try database.read { db in
+            try ids.prefix(5).map { String(try ownedEntry($0, account: account, in: db).0.title.plainText.prefix(200)) }
+        }
+        try charge(summary.count + summaryEnglish.count + titles.reduce(0) { $0 + $1.count })
         let dto = AgentStatePlan(plan_id: UUID().uuidString, account_id: account, article_ids: ids,
             field: field, value: value, expires_at: clock().addingTimeInterval(900),
-            retention_notice: "Marking read or removing a star may make articles eligible for existing retention cleanup. This spike provides no undo.")
+            retention_notice: "Marking read or removing a star may make articles eligible for retention cleanup. Changes to synced accounts are queued for sync. No undo is provided.",
+            action_kind: kind, summary: summary, summary_en: summaryEnglish, affected_count: ids.count, sample_titles: titles,
+            approval: "pending", next_step: "Ask the user to approve in the PaperRss window, then call paperrss_status with plan_id, then paperrss_apply_plan.")
         plans[dto.plan_id] = PendingPlan(dto: dto, before: before)
         return try .encoding(dto)
     }
-    private func apply(_ a: [String: AgentJSON]) throws -> AgentJSON {
+
+    private func planMarkRead(_ a: [String: AgentJSON]) throws -> AgentJSON {
+        let account = try string(a, "account_id"), scope = try string(a, "scope")
+        try authorize(account, write: true)
+        guard ["feed", "folder", "account"].contains(scope),
+              (scope == "feed") == (a["feed_id"] != nil),
+              (scope == "folder") == (a["folder"] != nil) else {
+            throw AgentFailure("INVALID_ARGUMENT", "Choose feed, folder or account with only its matching identifier.")
+        }
+        var beforeDate: Date?
+        if let raw = a["before"] {
+            let formatter = ISO8601DateFormatter()
+            let fractional = ISO8601DateFormatter(); fractional.formatOptions.insert(.withFractionalSeconds)
+            guard let text = raw.stringValue, let date = formatter.date(from: text) ?? fractional.date(from: text) else {
+                throw AgentFailure("INVALID_ARGUMENT", "before must be an ISO8601 instant.")
+            }
+            beforeDate = date
+        }
+        let (ids, states, label, englishLabel): ([String], [String: ArticleStateRecord], String, String) = try database.read { db in
+            var predicate = "", arguments: [DatabaseValueConvertible] = [account]
+            var label = "账号", englishLabel = "account"
+            if scope == "feed" {
+                let id = try string(a, "feed_id")
+                guard let feed = try provider.feedRepository.fetchFeed(id: id, in: db), feed.accountID == account, !feed.isDeleted else {
+                    throw AgentFailure("NOT_FOUND", "Feed not found in account.")
+                }
+                predicate = " AND i.feed_id = ?"; arguments.append(id)
+                label = "“\(String(feed.title.plainText.prefix(200)))” 订阅源"
+                englishLabel = "feed \"\(String(feed.title.plainText.prefix(200)))\""
+            } else if scope == "folder" {
+                let value = try string(a, "folder")
+                let folders = try FolderRecord.fetchAll(db, sql: "SELECT * FROM folders WHERE account_id = ? AND is_deleted = 0 AND (id = ? OR name = ?)", arguments: [account, value, value])
+                guard folders.count == 1, let folder = folders.first else {
+                    throw AgentFailure("INVALID_ARGUMENT", "Folder is missing or ambiguous; use its ID.")
+                }
+                predicate = " AND EXISTS (SELECT 1 FROM feed_folders ff WHERE ff.feed_id = i.feed_id AND ff.folder_id = ?)"; arguments.append(folder.id)
+                label = "“\(String(folder.name.plainText.prefix(200)))” 文件夹"
+                englishLabel = "folder \"\(String(folder.name.plainText.prefix(200)))\""
+            }
+            if let beforeDate { predicate += " AND COALESCE(a.published_at, s.date_arrived) < ?"; arguments.append(beforeDate.timeIntervalSince1970) }
+            let ids = try String.fetchAll(db, sql: """
+                SELECT i.id FROM items i JOIN articles a ON a.item_id = i.id
+                JOIN article_states s ON s.item_id = i.id JOIN feeds f ON f.id = i.feed_id
+                WHERE i.account_id = ? AND f.account_id = i.account_id AND f.is_deleted = 0 AND s.is_read = 0
+                \(predicate) ORDER BY i.id LIMIT 5001
+                """, arguments: StatementArguments(arguments))
+            guard ids.count <= 5000 else { throw AgentFailure("INVALID_ARGUMENT", "More than 5000 unread articles; narrow the scope with before.") }
+            let states = try Dictionary(uniqueKeysWithValues: ids.map { id in
+                guard let state = try provider.stateRepository.fetchState(itemID: id, in: db) else { throw AgentFailure("CONFLICT", "Article state missing.") }
+                return (id, state)
+            })
+            return (ids, states, label, englishLabel)
+        }
+        return try storePlan(account: account, ids: ids, field: .read, value: true, before: states,
+                             kind: "mark_read", summary: "将 \(label)的 \(ids.count) 篇未读标为已读",
+                             summaryEnglish: "Mark \(ids.count) unread articles in \(englishLabel) as read")
+    }
+    private func apply(_ a: [String: AgentJSON]) async throws -> AgentJSON {
+        guard !applying else { throw AgentFailure("CONFLICT", "Another write is executing; retry shortly.") }
         let id = try string(a, "plan_id"), approval = try string(a, "approval_id"), key = try string(a, "idempotency_key")
         guard key.count <= 128 else { throw AgentFailure("INVALID_ARGUMENT", "Idempotency key is too long.") }
         if let replay = receipts[key] {
@@ -431,33 +524,47 @@ public actor AgentLibraryService: AgentBridge {
         }
         guard var pending = plans[id], pending.dto.expires_at > clock() else { throw AgentFailure("CONFLICT", "Plan is unknown or expired.") }
         try authorize(pending.dto.account_id, write: true)
+        guard !pending.denied else { throw AgentFailure("DENIED", "Plan was denied.") }
         guard pending.approval == approval else { throw AgentFailure("CONFIRMATION_REQUIRED", "Approve this exact plan in PaperRss first.") }
         guard pending.receipt == nil else { throw AgentFailure("CONFLICT", "Plan already committed; retry with the original idempotency key.") }
         guard receipts.count < 256 else { throw AgentFailure("RATE_LIMITED", "Session receipt capacity reached.") }
         try Task.checkCancellation()
         let dto = pending.dto
-        let expected = pending.before
-        // Validation + all writes in one existing writer transaction. No await between check and commit.
-        try database.write { db in
-            // The writer queue can be busy longer than the approval lifetime.
+        applying = true
+        defer { applying = false }
+        func validate(_ db: Database) throws -> [String] {
             try Task.checkCancellation()
-            guard dto.expires_at > clock() else { throw AgentFailure("CONFLICT", "Plan expired while waiting for the writer transaction.") }
+            guard dto.expires_at > clock() else { throw AgentFailure("CONFLICT", "Plan expired before execution.") }
             try checkAccount(dto.account_id, write: true, in: db)
-            for articleID in dto.article_ids {
+            return try dto.article_ids.filter { articleID in
                 _ = try ownedEntry(articleID, account: dto.account_id, in: db)
-                guard let current = try provider.stateRepository.fetchState(itemID: articleID, in: db), current == expected[articleID] else {
-                    throw AgentFailure("CONFLICT", "Article state changed after preview; no articles were modified.")
+                guard let current = try provider.stateRepository.fetchState(itemID: articleID, in: db) else {
+                    throw AgentFailure("CONFLICT", "Article state missing.")
                 }
-            }
-            for articleID in dto.article_ids {
-                switch dto.field {
-                case .read: try provider.stateRepository.markRead(itemID: articleID, isRead: dto.value, in: db)
-                case .starred: try provider.stateRepository.markStarred(itemID: articleID, isStarred: dto.value, in: db)
-                }
+                return (dto.field == .read ? current.isRead : current.isStarred) != dto.value
             }
         }
-        let receipt = AgentStateReceipt(operation_id: UUID().uuidString, applied_count: dto.article_ids.count,
-                                        local_commit: "committed", sync: "not_applicable")
+        let result: AgentWriteResult
+        if let writeExecutor {
+            _ = try database.read { try validate($0) }
+            result = try await writeExecutor.execute(accountID: dto.account_id, articleIDs: dto.article_ids, field: dto.field, value: dto.value, expiresAt: dto.expires_at)
+        } else {
+            let appliedIDs = try database.write { db in
+                let ids = try validate(db)
+                for articleID in ids {
+                    switch dto.field {
+                    case .read: try provider.stateRepository.markRead(itemID: articleID, isRead: dto.value, in: db)
+                    case .starred: try provider.stateRepository.markStarred(itemID: articleID, isStarred: dto.value, in: db)
+                    }
+                }
+                return ids
+            }
+            result = AgentWriteResult(appliedCount: appliedIDs.count, skippedCount: dto.article_ids.count - appliedIDs.count, sync: "local_only")
+        }
+        let receipt = AgentStateReceipt(operation_id: UUID().uuidString, applied_count: result.appliedCount, skipped_count: result.skippedCount,
+                                        local_commit: "committed", sync: result.sync)
+        // A disconnect/toggle-off may revoke the actor while the App executor is awaited.
+        guard policy.enabled, plans[id] != nil else { throw AgentFailure("NOT_ENABLED", "Session was revoked during execution.") }
         pending.receipt = receipt
         plans[id] = pending
         receipts[key] = Replay(plan: id, approval: approval, receipt: receipt)

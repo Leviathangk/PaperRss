@@ -21,6 +21,20 @@ public struct AgentAccessPolicy: Sendable {
 
 public enum AgentStateField: String, Codable, Sendable { case read, starred }
 
+/// App supplies the normal provider/sync write path. No executor means isolated local-only storage.
+public protocol AgentWriteExecutor: Sendable {
+    func execute(accountID: String, articleIDs: [String], field: AgentStateField, value: Bool, expiresAt: Date) async throws -> AgentWriteResult
+}
+
+public struct AgentWriteResult: Sendable {
+    public let appliedCount: Int
+    public let skippedCount: Int
+    public let sync: String
+    public init(appliedCount: Int, skippedCount: Int, sync: String) {
+        self.appliedCount = appliedCount; self.skippedCount = skippedCount; self.sync = sync
+    }
+}
+
 public struct AgentStatePlan: Codable, Sendable {
     public let plan_id: String
     public let account_id: String
@@ -29,11 +43,19 @@ public struct AgentStatePlan: Codable, Sendable {
     public let value: Bool
     public let expires_at: Date
     public let retention_notice: String
+    public let action_kind: String
+    public let summary: String
+    public let summary_en: String
+    public let affected_count: Int
+    public let sample_titles: [String]
+    public let approval: String
+    public let next_step: String
 }
 
 public struct AgentStateReceipt: Codable, Sendable, Equatable {
     public let operation_id: String
     public let applied_count: Int
+    public let skipped_count: Int
     public let local_commit: String
     public let sync: String
 }

@@ -153,6 +153,7 @@ public final class AgentIPCServer: @unchecked Sendable {
     public typealias Handler = @Sendable (String, String, [String: AgentJSON]) async throws -> AgentJSON
     private let directory: URL
     private let handler: Handler
+    private let connected: @Sendable (String, String?) async -> Void
     private let disconnected: @Sendable (String) async -> Void
     private let lock = NSRecursiveLock()
     private let acceptQueue = DispatchQueue(label: "PaperRss.AgentIPC.accept")
@@ -162,8 +163,9 @@ public final class AgentIPCServer: @unchecked Sendable {
     private var token = ""
     private var instance = ""
     public init(directory: URL = AgentIPCPaths.defaultDirectory, handler: @escaping Handler,
+                connected: @escaping @Sendable (String, String?) async -> Void = { _, _ in },
                 disconnected: @escaping @Sendable (String) async -> Void = { _ in }) {
-        self.directory = directory; self.handler = handler; self.disconnected = disconnected
+        self.directory = directory; self.handler = handler; self.connected = connected; self.disconnected = disconnected
     }
     public func start(enabled: Bool = true) throws {
         lock.lock(); defer { lock.unlock() }
@@ -270,6 +272,12 @@ public final class AgentIPCServer: @unchecked Sendable {
             let hello = try await io { try IPC.receive(fd, maximum: 65_536) }
             guard hello["version"]?.intValue == IPC.version else { throw AgentFailure("VERSION_MISMATCH", "IPC protocol version is incompatible.") }
             guard hello["token"]?.stringValue == token else { throw AgentFailure("UNAUTHORIZED", "IPC token does not match this App instance.") }
+            // Self-reported diagnostics never participate in authentication or authorization.
+            let label = hello["client_label"]?.stringValue
+            guard hello["client_label"] == nil || (label.map { !$0.isEmpty && $0.utf8.count <= 128 } == true) else {
+                throw AgentFailure("INVALID_ARGUMENT", "Invalid diagnostic client label.")
+            }
+            await connected(session, label)
             try await io { try IPC.send(fd, .object(["version": .number(Double(IPC.version)), "instance_id": .string(instance)])) }
             while true {
                 // Do not expire grants merely because a user is idle. Once a frame begins,
@@ -321,10 +329,11 @@ public final class AgentIPCServer: @unchecked Sendable {
 public final class AgentIPCClientBridge: AgentBridge, @unchecked Sendable {
     private let enabled: Bool
     private let directory: URL
+    private let clientLabel: String?
     private let queue = DispatchQueue(label: "PaperRss.AgentIPC.client")
     private var fd: Int32 = -1
-    public init(enabled: Bool = false, directory: URL = AgentIPCPaths.defaultDirectory) {
-        self.enabled = enabled; self.directory = directory
+    public init(enabled: Bool = false, directory: URL = AgentIPCPaths.defaultDirectory, clientLabel: String? = nil) {
+        self.enabled = enabled; self.directory = directory; self.clientLabel = clientLabel
     }
     public func call(tool: String, arguments: [String: AgentJSON]) async throws -> AgentJSON {
         guard enabled else { throw AgentFailure("NOT_ENABLED", "Set PAPERRSS_AGENT_ENABLED=1 in the helper configuration.") }
@@ -363,7 +372,9 @@ public final class AgentIPCClientBridge: AgentBridge, @unchecked Sendable {
         }
         let connected = try IPC.connect(directory.appendingPathComponent("bridge.sock").path)
         do {
-            try IPC.send(connected, .object(["version": .number(Double(IPC.version)), "token": .string(token)]))
+            var hello: [String: AgentJSON] = ["version": .number(Double(IPC.version)), "token": .string(token)]
+            if let clientLabel { hello["client_label"] = .string(clientLabel) }
+            try IPC.send(connected, .object(hello))
             let response = try IPC.checked(IPC.receive(connected))
             guard response["version"]?.intValue == IPC.version, response["instance_id"]?.stringValue?.isEmpty == false else {
                 throw AgentFailure("VERSION_MISMATCH", "Invalid App bridge handshake.")

@@ -41,7 +41,7 @@ public enum AgentMCPTools {
         let page = integer(maximum: 50, default: 20)
         let key = string(128)
         return [
-            tool("status", "Report App version, accounts, cached counts and session capabilities; no credentials or sync.",
+            tool("status", "Report App version, accounts, capabilities and pending_approvals. With plan_id report pending/approved/denied/expired/committed; approval_id is returned only when approved.",
                  ["plan_id": string(), "operation_id": string()], required: []),
             tool("open", "Locate a feed or article in PaperRss without marking it read. Choose exactly one ID.",
                  ["account_id": account, "article_id": article, "feed_id": feed],
@@ -60,13 +60,22 @@ public enum AgentMCPTools {
                  ["account_id": account, "article_id": article, "selection_id": string(),
                   "max_chars": integer(maximum: 20_000, default: 8_000)],
                  required: ["account_id", "article_id", "selection_id"]),
-            tool("plan_state_change", "Preview an exact read/starred change. Does not change article state; requires approval in PaperRss.",
+            tool("plan_state_change", "Preview a change to 1–50 exact articles. Ask the user to click Approve in PaperRss, then poll status with plan_id before applying. Clients cannot approve.",
                  ["account_id": account,
                   "article_ids": .object(["type": .string("array"), "items": article,
                                           "minItems": .number(1), "maxItems": .number(50), "uniqueItems": .bool(true)]),
                   "field": enumeration(["read", "starred"]), "value": .object(["type": .string("boolean")])],
                  required: ["account_id", "article_ids", "field", "value"], readOnly: false),
-            tool("apply_state_change", "Apply an App-approved immutable plan with expiry, precondition and idempotency checks.",
+            tool("plan_mark_read", "Snapshot up to 5000 unread articles in a feed, folder or account. Optional before uses published time, falling back to received time. Narrow with before if over cap. Ask the user to approve in PaperRss, then poll status with plan_id and call apply_plan. Clients cannot approve.",
+                 ["account_id": account, "scope": enumeration(["feed", "folder", "account"]),
+                  "feed_id": feed, "folder": string(),
+                  "before": .object(["type": .string("string"), "format": .string("date-time"), "maxLength": .number(64)])],
+                 required: ["account_id", "scope"], readOnly: false),
+            tool("apply_plan", "Apply any immutable plan approved by a human in PaperRss. Rechecks ownership and expiry, skips already-satisfied state, and returns applied_count, skipped_count and sync. Reuse the same idempotency_key for retries.",
+                 ["plan_id": string(), "approval_id": approval, "idempotency_key": key],
+                 required: ["plan_id", "approval_id", "idempotency_key"],
+                 readOnly: false, destructive: true, openWorld: true, idempotent: true),
+            tool("apply_state_change", "Backward-compatible alias of paperrss_apply_plan; requires a human's App-issued approval for the immutable plan.",
                  ["plan_id": string(), "approval_id": approval, "idempotency_key": key],
                  required: ["plan_id", "approval_id", "idempotency_key"],
                  readOnly: false, destructive: true, openWorld: true, idempotent: true),
@@ -93,6 +102,13 @@ public enum AgentMCPTools {
         try validate(value: .object(arguments), schema: schema)
         if name == "paperrss_open", (arguments["article_id"] != nil) == (arguments["feed_id"] != nil) {
             throw AgentFailure("INVALID_ARGUMENT", "Choose exactly one article_id or feed_id.")
+        }
+        if name == "paperrss_plan_mark_read" {
+            let scope = arguments["scope"]?.stringValue
+            guard (scope == "feed") == (arguments["feed_id"] != nil),
+                  (scope == "folder") == (arguments["folder"] != nil) else {
+                throw AgentFailure("INVALID_ARGUMENT", "feed_id is required only for feed scope; folder only for folder scope.")
+            }
         }
         if name == "paperrss_list_articles" {
             let selected = arguments["scope"]?.stringValue == "selection"
