@@ -17,6 +17,8 @@
 
 ## 构建与启用
 
+在 macOS App 中打开 **设置 → 常规 → 外部助手 → 连接外部助手**，即可开启或关闭现有 MCP listener；默认关闭。同一区域的「复制 MCP 配置与提示词」提供 Cursor / Claude JSON 与 Codex TOML 片段。若未找到可执行 helper，复制内容会提示先构建并填写绝对路径。helper 尚未随 App 打包。
+
 以下均在本 worktree 执行。构建本身不启动 App：
 
 ```sh
@@ -44,7 +46,7 @@ swift build --product paperrss-agent
 defaults write com.yangbukun.PaperRss PaperRss.agentMCPEnabled -bool YES
 ```
 
-退出再启动本次构建产物。关闭时退出，再以 `-PaperRss.agentMCPEnabled NO` 启动；或 `defaults write ... -bool NO` 后重启。启动参数优先于持久 defaults；外部 `defaults write` 的跨进程实时通知不作为本轮保证。App 内同一 defaults 对象变更会驱动 listener 关闭，每次业务调用也再次检查开关。
+退出再启动本次构建产物。关闭时可直接关闭设置开关；也可退出后以 `-PaperRss.agentMCPEnabled NO` 启动，或 `defaults write ... -bool NO` 后重启。启动参数优先于持久 defaults；外部 `defaults write` 的跨进程实时通知不作为本轮保证。App 内同一 defaults 对象变更会驱动 listener 关闭，每次业务调用也再次检查开关。
 
 **helper 还有独立进程开关** `PAPERRSS_AGENT_ENABLED=1`，两个开关都必需。helper 不会自动打开 App。`PAPERRSS_AGENT_SOCKET_DIR` 仅供隔离 socket 冒烟测试覆盖 helper 目录；日常 QA 不设置，App 使用固定默认目录。
 

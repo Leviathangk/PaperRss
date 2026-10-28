@@ -240,6 +240,11 @@ struct SettingsView: View {
     @State private var isAddingFreshRSS = false
     @State private var addFreshRSSError: String?
     @State private var addFreshRSSSuccess: String?
+    #if os(macOS)
+    @AppStorage(AgentBridgeController.enableKey) private var agentMCPEnabled = false
+    @State private var agentMCPCopied = false
+    @State private var agentMCPCopyTask: Task<Void, Never>?
+    #endif
     @State private var storageCleanFeedbackMessage: String?
     @State private var storageCleanDismissTask: Task<Void, Never>?
     @State private var isClearingStorage = false
@@ -2905,9 +2910,48 @@ struct SettingsView: View {
             Text(I18N.shared.localized("常规", "General"))
                 .font(.system(size: 26, weight: .bold))
             languageSettings
+            #if os(macOS)
+            agentMCPSettings
+            #endif
             refreshSettings
         }
     }
+
+    #if os(macOS)
+    private var agentMCPSettings: some View {
+        settingsGroup(
+            I18N.shared.localized("外部助手", "External Assistants"),
+            info: I18N.shared.localized(
+                "允许本机 Cursor、Codex 或 Claude 通过 MCP 读取本地订阅与文章元数据。默认关闭。",
+                "Allow local Cursor, Codex, or Claude clients to read local subscriptions and article metadata via MCP. Off by default."
+            )
+        ) {
+            settingsRow(I18N.shared.localized("连接外部助手", "Connect External Assistants")) {
+                Toggle(I18N.shared.localized("连接外部助手", "Connect External Assistants"), isOn: $agentMCPEnabled)
+                    .labelsHidden()
+                    .accessibilityIdentifier("settings.agentMCPEnabled")
+            }
+            Divider().padding(.horizontal, 18).opacity(0.18)
+            settingsRow(I18N.shared.localized("MCP 配置", "MCP Configuration")) {
+                Button(agentMCPCopied
+                    ? I18N.shared.localized("已复制", "Copied")
+                    : I18N.shared.localized("复制 MCP 配置与提示词", "Copy MCP Configuration and Prompt")) {
+                    let text = AgentMCPConnectCopy.text(path: AgentMCPConnectCopy.helperPath(), english: I18N.shared.isEnglish)
+                    NSPasteboard.general.clearContents()
+                    guard NSPasteboard.general.setString(text, forType: .string) else { return }
+                    agentMCPCopied = true
+                    agentMCPCopyTask?.cancel()
+                    agentMCPCopyTask = Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(2))
+                        guard !Task.isCancelled else { return }
+                        agentMCPCopied = false
+                    }
+                }
+                .accessibilityIdentifier("settings.copyAgentMCPConfiguration")
+            }
+        }
+    }
+    #endif
 
     private var refreshSettings: some View {
         VStack(alignment: .leading, spacing: 20) {
