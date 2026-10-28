@@ -310,13 +310,20 @@ struct RootView: View {
                 store.iconStore.warmUp(feeds: feeds)
             }
             .onReceive(navigation.$request.compactMap { $0 }) { request in
-                guard request.destination == .unread else { return }
                 cancelNavigationConfirmation(dismissToast: true)
-                selection = .unread
-                timelineMemory.resetScope()
-                isTimelineBrowsing = timelineStyle != .list
-                selectedEntryID = nil
-                retainedEntryListIDs.removeAll()
+                showsSettings = false
+                switch request.destination {
+                case .unread:
+                    sidebarSelection.wrappedValue = .unread
+                    selectedEntryID = nil
+                    retainedEntryListIDs.removeAll()
+                case let .agent(_, feedID, articleID):
+                    sidebarSelection.wrappedValue = .feed(feedID)
+                    selectedFeedIDs = [feedID]
+                    selectedEntryID = articleID
+                    retainedEntryListIDs = articleID.map { [$0] } ?? []
+                    isTimelineBrowsing = articleID == nil && timelineStyle != .list
+                }
                 autoScrollTrigger = UUID()
             }
             .onChange(of: isZenMode) { _, newZenMode in
@@ -325,6 +332,7 @@ struct RootView: View {
                 }
             }
             .onChange(of: selectedEntryID) { oldID, newID in
+                navigation.didSelectArticle(newID)
                 if oldID != newID {
                     cancelNavigationConfirmation(dismissToast: true)
                 }
@@ -416,7 +424,7 @@ struct RootView: View {
         .background(SettingsWindowRoute(open: { showsSettings.toggle() }))
         .focusedSceneValue(\.paperReaderActive, !showsSettings)
         .onAppear {
-            isTimelineBrowsing = timelineStyle != .list
+            isTimelineBrowsing = selectedEntryID == nil && timelineStyle != .list
             // 菜单栏模式没有 Dock 图标可点，窗口关闭后由这里重新打开主窗口。
             attention.registerMainWindowOpener { openWindow(id: "main") }
             // 主窗口已上屏，主菜单必然就绪：补一次快捷键保留表扫描（幂等）。
@@ -448,6 +456,7 @@ struct RootView: View {
                 store: store,
                 appearanceMode: appearanceMode,
                 selection: sidebarSelection,
+                agentFeedToReveal: agentFeedToReveal,
                 unreadFilteredGroups: unreadFilteredGroupsBinding,
                 selectedFeedIDs: $selectedFeedIDs,
                 showsAddFeed: $showsAddFeed,
@@ -476,6 +485,7 @@ struct RootView: View {
                 selection: selection ?? .today,
                 unreadOnly: effectiveUnreadOnly,
                 selectedEntryID: $selectedEntryID,
+                autoMarkRead: selectedEntryID.map(navigation.shouldAutomaticallyMarkRead) ?? true,
                 retainedUnreadIDs: $retainedEntryListIDs,
                 columnFocusState: columnFocusState,
                 titleTranslator: store.titleTranslator,
@@ -538,6 +548,7 @@ struct RootView: View {
                 store: store,
                 appearanceMode: appearanceMode,
                 selection: sidebarSelection,
+                agentFeedToReveal: agentFeedToReveal,
                 unreadFilteredGroups: unreadFilteredGroupsBinding,
                 selectedFeedIDs: $selectedFeedIDs,
                 showsAddFeed: $showsAddFeed,
@@ -561,6 +572,7 @@ struct RootView: View {
                 selection: selection ?? .today,
                 unreadOnly: effectiveUnreadOnly,
                 selectedEntryID: $selectedEntryID,
+                autoMarkRead: selectedEntryID.map(navigation.shouldAutomaticallyMarkRead) ?? true,
                 retainedUnreadIDs: $retainedEntryListIDs,
                 columnFocusState: columnFocusState,
                 titleTranslator: store.titleTranslator,
@@ -1231,6 +1243,7 @@ struct RootView: View {
                     store: store,
                     aiWorkspace: store.aiWorkspace,
                     entry: selectedEntry,
+                    canAutomaticallyMarkRead: navigation.shouldAutomaticallyMarkRead,
                     appearanceMode: appearanceMode,
                     shortcutInvocation: readerShortcutInvocation,
                     onReaderShortcut: dispatchReaderShortcut,
@@ -1264,6 +1277,12 @@ struct RootView: View {
     /// Doing this later from `EntryListView.onChange` forced SwiftUI to update
     /// the split view twice and briefly kept the previous WKWebView alive while
     /// constructing the new feed list.
+    private var agentFeedToReveal: UUID? {
+        guard case let .agent(_, feedID, _) = navigation.request?.destination,
+              selection == .feed(feedID) else { return nil }
+        return feedID
+    }
+
     private var sidebarSelection: Binding<SidebarSelection?> {
         Binding(
             get: { selection },
@@ -1345,6 +1364,7 @@ private struct SidebarView: View {
     @ObservedObject var store: AppStore
     let appearanceMode: ReaderAppearanceMode
     @Binding var selection: SidebarSelection?
+    var agentFeedToReveal: UUID? = nil
     @Binding var unreadFilteredGroups: Set<SidebarSelection>
     @Binding var selectedFeedIDs: Set<UUID>
     @Binding var showsAddFeed: Bool
@@ -1405,7 +1425,7 @@ private struct SidebarView: View {
 
     private func isAccountExpandedBinding(accountID: String) -> Binding<Bool> {
         Binding(
-            get: { !collapsedAccounts.contains(accountID) },
+            get: { !collapsedAccounts.contains(accountID) || agentFeedToReveal.map { store.accountID(forFeedID: $0) == accountID } == true },
             set: { isExpanded in
                 var current = collapsedAccounts
                 if isExpanded {
@@ -1420,7 +1440,12 @@ private struct SidebarView: View {
 
     private func isFolderExpandedBinding(key: String) -> Binding<Bool> {
         Binding(
-            get: { !collapsedFolders.contains(key) },
+            get: {
+                guard let id = agentFeedToReveal, let feed = store.feed(forFeedID: id), let folder = feed.folder else {
+                    return !collapsedFolders.contains(key)
+                }
+                return !collapsedFolders.contains(key) || key == "\(store.accountID(forFeedID: id))::\(folder)"
+            },
             set: { isExpanded in
                 var current = collapsedFolders
                 if isExpanded {
@@ -1477,7 +1502,7 @@ private struct SidebarView: View {
         let filtersAccount = unreadFilteredGroups.contains(.account(accountID))
         let filtersFolder = folder.map { unreadFilteredGroups.contains(.folder(accountID: accountID, folderName: $0)) } ?? false
         guard filtersAccount || filtersFolder else { return feeds }
-        return feeds.filter { store.unreadCount(feedID: $0.id) > 0 }
+        return feeds.filter { $0.id == agentFeedToReveal || store.unreadCount(feedID: $0.id) > 0 }
     }
 
     private func filterAction(for row: SidebarSelection) -> (() -> Void)? {
@@ -2762,6 +2787,7 @@ private struct EntryListView: View {
     let selection: SidebarSelection
     var unreadOnly: Bool = false
     @Binding var selectedEntryID: String?
+    var autoMarkRead = true
     @Binding var retainedUnreadIDs: Set<String>
     @ObservedObject var columnFocusState: PaperColumnFocusState
     @ObservedObject var titleTranslator: FeedTitleTranslationCoordinator
@@ -3408,7 +3434,7 @@ private struct EntryListView: View {
                     }
                     if viewStyle != .magazine { visualSelectionID = newID }
                     loadPageForSelectedEntryIfNeeded(newID)
-                    patchEntryState(entryID: newID, isRead: true)
+                    if autoMarkRead { patchEntryState(entryID: newID, isRead: true) }
                 }
             }
             .onChange(of: store.timelineRevision) { _, _ in

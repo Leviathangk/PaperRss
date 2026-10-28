@@ -95,6 +95,31 @@ final class AgentIPCIntegrationTests: XCTestCase {
         ["account_id": account, "article_id": .string(article), "selection_id": .string(selection), "max_chars": .number(8_000)]
     }
 
+    func testInjectedSnapshotAndOpenerRoundtrip() async throws {
+        let fixture = try Fixture(enabled: true, launchArguments: [])
+        var opened: AgentOpenRequest?
+        do {
+            try await fixture.controller.attach(database: fixture.database,
+                accountSnapshotProvider: {
+                    try AgentBridgeController.accountSnapshots(database: fixture.database, canOpen: true)
+                }, opener: { opened = $0 })
+            let status = try await fixture.controller.call(tool: "paperrss_status", arguments: [:])
+            XCTAssertNotNil(status["app"]?["version"]?.stringValue)
+            XCTAssertEqual(status["tools"], .array(AgentToolCatalog.names.map(AgentJSON.string)))
+            XCTAssertTrue(status["capabilities"]?.arrayValue?.contains(.string("ui.open")) == true)
+            let before = try fixture.state("a")
+            let result = try await fixture.controller.call(tool: "paperrss_open", arguments: [
+                "account_id": account, "article_id": .string("a")])
+            XCTAssertEqual(opened, AgentOpenRequest(accountID: "local-default", feedID: fixture.feed.id, articleID: "a"))
+            XCTAssertEqual(result["opened"], .string("article"))
+            XCTAssertEqual(try fixture.state("a"), before)
+        } catch {
+            await fixture.close()
+            throw error
+        }
+        await fixture.close()
+    }
+
     func testDisabledAppAndStoppedAppHaveDistinctErrors() async throws {
         try await withFixture(enabled: false) { fixture in
             let client = fixture.client()

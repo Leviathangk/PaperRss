@@ -23,12 +23,15 @@ struct PaperRssApp: App {
 
     init() {
         let store = AppStore()
-        AgentBridgeController.shared.attach(to: store)
         let navigation = AppNavigationModel()
         _store = StateObject(wrappedValue: store)
         _navigation = StateObject(wrappedValue: navigation)
         #if os(macOS)
-        _attention = StateObject(wrappedValue: MacSystemAttentionController(store: store, navigation: navigation))
+        let attention = MacSystemAttentionController(store: store, navigation: navigation)
+        _attention = StateObject(wrappedValue: attention)
+        AgentBridgeController.shared.attach(to: store, opener: { request in
+            attention.openAgent(request)
+        })
         _updateCoordinator = StateObject(wrappedValue: UpdateCoordinatorFactory.make())
         #endif
     }

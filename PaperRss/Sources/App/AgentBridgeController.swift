@@ -15,6 +15,9 @@ final class AgentBridgeController: AgentBridge {
     private let defaults: UserDefaults
     private var database: LibraryDatabase?
     private var accountID = "local-default"
+    typealias AccountSnapshotProvider = @MainActor () throws -> [AgentJSON]
+    private var accountSnapshotProvider: AccountSnapshotProvider?
+    private var opener: (@MainActor @Sendable (AgentOpenRequest) throws -> Void)?
     private var sessions: [String: AgentLibraryService] = [:]
     private var generation = UUID()
     private var qaArticleIDs: [String] = []
@@ -49,19 +52,30 @@ final class AgentBridgeController: AgentBridge {
     }
 
     /// App initialization owns this call; WindowGroup.onAppear must not create bridges.
-    func attach(to store: AppStore) {
+    func attach(to store: AppStore, opener: @escaping @MainActor @Sendable (AgentOpenRequest) throws -> Void) {
         guard database == nil, store.startupError == nil else { return }
-        Task { [weak self] in
-            do { try await self?.attach(database: store.libraryDatabase, accountID: store.localProvider.accountID) }
+        Task { [weak self, store] in
+            do { try await self?.attach(database: store.libraryDatabase, accountID: store.localProvider.accountID,
+                accountSnapshotProvider: { [weak store] in
+                    guard let store else { throw AgentFailure("APP_NOT_RUNNING", "PaperRss is not ready.") }
+                    return try Self.accountSnapshots(database: store.libraryDatabase, accounts: store.accounts,
+                                                     syncStates: store.accountSyncStates, canOpen: true)
+                }, opener: opener) }
             catch { self?.transportFailure = (error as? AgentFailure)?.code ?? "IPC_UNAVAILABLE" }
         }
     }
 
     /// Also used by isolated tests; never constructs a database or starts a provider/sync job.
-    func attach(database: LibraryDatabase, accountID: String = "local-default") async throws {
+    func attach(database: LibraryDatabase, accountID: String = "local-default",
+                accountSnapshotProvider: AccountSnapshotProvider? = nil,
+                opener: (@MainActor @Sendable (AgentOpenRequest) throws -> Void)? = nil) async throws {
         guard self.database == nil else { return }
         self.database = database
         self.accountID = accountID
+        self.opener = opener
+        self.accountSnapshotProvider = accountSnapshotProvider ?? {
+            try Self.accountSnapshots(database: database, canOpen: opener != nil)
+        }
         qaExpiresAt = Date().addingTimeInterval(900)
         #if os(macOS)
         let endpoint = AgentIPCServer(directory: directory, handler: { [weak self] sessionID, tool, arguments in
@@ -108,10 +122,28 @@ final class AgentBridgeController: AgentBridge {
             throw AgentFailure("NOT_ENABLED", "Enable local agent access in PaperRss first.")
         }
         guard let database else { throw AgentFailure("APP_NOT_RUNNING", "PaperRss is not ready.") }
-        if let session = sessions[id] { return session }
+        let accountIDs = Set(try accountSnapshotProvider?().compactMap {
+            $0["enabled"]?.boolValue == true ? $0["account_id"]?.stringValue : nil
+        } ?? [])
+        if let session = sessions[id] {
+            await session.updateAccountIDs(accountIDs)
+            return session
+        }
         guard sessions.count < 16 else { throw AgentFailure("RATE_LIMITED", "Too many local agent sessions.") }
+        let sessionGeneration = generation
         let created = AgentLibraryService(database: database, accountID: accountID,
-            policy: AgentAccessPolicy(enabled: true, accountIDs: [accountID], allowStarred: true))
+            policy: AgentAccessPolicy(enabled: true, accountIDs: accountIDs, allowStarred: true),
+            opener: { [weak self] request in
+                guard let self, self.generation == sessionGeneration, self.sessions[id] != nil,
+                      self.defaults.bool(forKey: Self.enableKey), let opener = self.opener else {
+                    throw AgentFailure("NOT_ENABLED", "UI access is unavailable.")
+                }
+                let accounts = try self.accountSnapshotProvider?() ?? []
+                guard accounts.contains(where: { $0["account_id"]?.stringValue == request.accountID && $0["enabled"]?.boolValue == true }) else {
+                    throw AgentFailure("NOT_FOUND", "Account is unavailable.")
+                }
+                try opener(request)
+            })
         sessions[id] = created
         if !qaConsumed, !qaArticleIDs.isEmpty, let qaExpiresAt, Date() < qaExpiresAt {
             qaConsumed = true
@@ -138,12 +170,37 @@ final class AgentBridgeController: AgentBridge {
             throw AgentFailure("NOT_ENABLED", "Local agent access was revoked during the request.")
         }
         if tool == "paperrss_status", var status = response.objectValue {
+            status["app"] = Self.appInfo()
+            status["accounts"] = .array(try accountSnapshotProvider?() ?? [])
+            status["capabilities"] = .array(Self.capabilities(canOpen: opener != nil).map(AgentJSON.string))
+            status["tools"] = .array(AgentToolCatalog.names.map(AgentJSON.string))
             status["transport"] = .string(sessionID == "app" ? "in_process" : "unix_socket")
             status["paired"] = .bool(sessionID != "app")
             status["pair_state"] = .string(sessionID == "app" ? "app_internal" : "local_user_token")
             response = .object(status)
         }
         return response
+    }
+
+    static func appInfo(bundle: Bundle = .main) -> AgentJSON {
+        #if DEBUG
+        let debug = true
+        #else
+        let debug = false
+        #endif
+        return .object(["version": .string(bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"),
+                        "build": .string(bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"),
+                        "debug": .bool(debug)])
+    }
+
+    private static func capabilities(canOpen: Bool) -> [String] {
+        ["metadata.read", "content.read.selection"] + (canOpen ? ["ui.open"] : [])
+    }
+
+    static func accountSnapshots(database: LibraryDatabase, accounts: [AccountRecord]? = nil,
+                                 syncStates: [String: AccountSyncStateRecord]? = nil,
+                                 canOpen: Bool = false) throws -> [AgentJSON] {
+        try AgentAccountSnapshots.read(database: database, accounts: accounts, syncStates: syncStates, canOpen: canOpen)
     }
 
     /// Trusted App-only hook. Caller must obtain consent for the precise external session.

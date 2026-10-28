@@ -2,7 +2,7 @@
 
 2026-10-27；在 `codex/agent-mcp-spike` / `8c78350` 上继续实现。研究依据：只读参考 `documents/research/paperrss-agent-integration-cli-mcp.md` §10–§12，该未跟踪副本不提交。
 
-**helper 不带 `--fixture` 时已接入 App 的 Unix domain socket；App 使用自己已打开的 LibraryDatabase 提供查询。** 默认关闭。自动化使用隔离库和真实 socket，不等同于日常库、GUI 客户端或签名安装包验收。当前交付优先满足本地账户的 status、Feed 列表、文章列表、元数据及显式授权的已有正文。
+**helper 不带 `--fixture` 时已接入 App 的 Unix domain socket；App 使用自己已打开的 LibraryDatabase 提供查询。** 默认关闭。自动化使用隔离库和真实 socket，不等同于日常库、GUI 客户端或签名安装包验收。当前支持所有已启用的 local、iCloud、FreshRSS、Miniflux 账户的库内元数据读取，以及 App 内定位；正文仍需显式选择授权。
 
 ## 数据与安全边界
 
@@ -12,12 +12,12 @@
 - 这是**当前 macOS 用户范围的信任**，并非代码签名绑定或逐客户端人工配对。同用户能读取 token 的进程也能连接；`--client` 只是标签，不是身份。每个已认证连接独立授权、预算、游标；断开撤销。不要把任意同用户进程视为已隔离的安全主体。
 - App 初始化库成功后取得 `owner` 排他锁。OFF 保留 owner 锁和 disabled 状态，移除数据 listener/token，并撤销已有会话；进程退出释放锁。helper 据此区分 `NOT_ENABLED` 与 `APP_NOT_RUNNING`。崩溃留下的 socket 只有在持有 owner 锁且确认无活跃 listener 后才清理；拒绝覆盖活跃实例。OFF 只留下状态文件，不提供库查询端口。
 - UDS 采用长度前缀 JSON；请求上限 64 KiB、响应上限 1 MiB，有限连接数、15 秒阻塞读写超时；认证后空闲等待不主动断开，阻塞 I/O 在后台队列。stdio stdout 只输出 JSON-RPC。无 TCP/HTTP 端口、launchd、云连接、自动打开 App 或全库导出。
-- 元数据允许本地账户 unread/starred/selection；正文最多选 20 篇，每篇最多 20,000 字符，默认 8,000，selection 有效 15 分钟。每会话共享默认 100,000 字符预算及每分钟 60 个业务调用。正文仅用已存内容，不抓网页、不写缓存、不隐式标已读。文章文本全部视为不可信输入。
+- 元数据允许所有已启用账户 unread/starred/selection；正文最多选 20 篇，每篇最多 20,000 字符，默认 8,000，selection 有效 15 分钟。每会话共享默认 100,000 字符预算及每分钟 60 个业务调用。正文仅用已存内容，不抓网页、不写缓存、不隐式标已读。文章文本全部视为不可信输入。
 - 真实 App 的 state.write 仍关闭，Feed CRUD 为 stub；未实现 #57 滚动标已读。本轮没有更改同步、保留或清理策略。
 
 ## 构建与启用
 
-在 macOS App 中打开 **设置 → AI → MCP → 连接外部助手**，即可开启或关闭现有 MCP listener；默认关闭。「一键安装」提供 Cursor、VS Code、已安装的 VS Code Insiders、Claude Code 和 Codex CLI；其他助手可通过「复制配置」获取通用配置与提示词。关闭开关时两个区域置灰且不可操作。原生 App 将签名的 helper 内嵌在 `PaperRss.app/Contents/MacOS/paperrss-agent`。移动 App 后需重新复制配置；Release 缺少 helper 时提示重新安装，Debug 则可使用开发构建路径并提示构建。
+在 macOS App 中打开 **设置 → AI → MCP → 连接外部助手**，即可开启或关闭现有 MCP listener；默认关闭。「一键安装」按 Codex CLI、Claude Code、DeepSeek dsh、Cursor、VS Code、VS Code Insiders 排序（Insiders 仍仅在已安装时出现）；其他助手可通过「复制配置」获取通用配置与提示词。关闭开关时两个区域置灰且不可操作。原生 App 将签名的 helper 内嵌在 `PaperRss.app/Contents/MacOS/paperrss-agent`。移动 App 后需重新复制配置；Release 缺少 helper 时提示重新安装，Debug 则可使用开发构建路径并提示构建。
 
 以下均在本 worktree 执行。构建本身不启动 App：
 
@@ -77,7 +77,7 @@ args = ["serve", "--stdio", "--client", "oliver-qa"]
 PAPERRSS_AGENT_ENABLED = "1"
 ```
 
-保存后重新连接对应 MCP server。这里没有修改任何全局客户端配置，也没有验收三个客户端 GUI。stdio 支持 initialize、ping、tools/list、tools/call、cancelled 通知；工具数 10，失败包含 `isError: true` 与结构化错误码。协议版本覆盖 2025-11-25、2025-06-18、2024-11-05；不是完整 MCP conformance 声明。
+保存后重新连接对应 MCP server。这里没有修改任何全局客户端配置，也没有验收三个客户端 GUI。stdio 支持 initialize、ping、tools/list、tools/call、cancelled 通知；工具数 11，失败包含 `isError: true` 与结构化错误码。协议版本覆盖 2025-11-25、2025-06-18、2024-11-05；不是完整 MCP conformance 声明。
 
 ## Debug 正文授权路径
 
@@ -117,8 +117,8 @@ SwiftPM 备选将可执行文件替换为 `.build/debug/PaperRssDesktop`。不�
 
 **逐步核对**
 
-1. `paperrss_status {}`：应返回 `enabled: true`、`paired: true`、`transport: "unix_socket"`，从 `accounts` 读取允许的本地 account_id（通常 `local-default`）。不能出现 `fixture: true`。
-2. `paperrss_list_feeds {"account_id":"local-default","limit":20}`：返回 App 本地账户的真实订阅和计数。只有远端/iCloud账户时本地列表可能为空；本轮不开放这些账户。
+1. `paperrss_status {}`：应返回 `enabled: true`、`paired: true`、`transport: "unix_socket"`，从 `accounts` 读取 `enabled: true` 的 account_id（本地通常是 `local-default`）。不能出现 `fixture: true`。
+2. `paperrss_list_feeds {"account_id":"local-default","limit":20}`：返回 App 本地账户的真实订阅和计数。也可传入已启用的 iCloud/FreshRSS/Miniflux account_id；查询共享库，不发起网络请求。
 3. `paperrss_list_articles {"account_id":"local-default","scope":"unread","limit":20}`：与 App 的本地未读文章核对。可加 feed_id、since、query；query 只搜索标题/摘要。再试 scope=starred。列表响应不含正文，不改变已读。
 4. 从列表取真实 ID，`paperrss_get_article {"account_id":"local-default","article_id":"REAL_ID"}`：核对标题、状态和 content_available；无正文。超出 unread/starred/selection 范围的已读未星标文章应 UNAUTHORIZED。
 5. 按置顶「QA 两段式」从 **App 终端参数**授权所选篇目，再从 status 取 `selection_ids[0]`，调用 `paperrss_get_content {"account_id":"local-default","article_id":"REAL_ID","selection_id":"STATUS_RETURNED_ID","max_chars":8000}`。应返回已存文本；检查原文章已读状态没变。没有已有正文时可能报内容不可用，不会隐式抓网页。
@@ -173,7 +173,7 @@ python3 scripts/build-support.py --lane tests --temporary -- \
 
 - 正式配对/确认/撤销 UI、签名 helper bundle、安装与升级链路尚未完成；只验证当前用户 token 信任模型，不保证 Mac App Store sandbox 可用。
 - 真实 App/Claude Desktop/Cursor/Codex GUI 三端尚需按上述步骤人工验收。自动化使用 App 相同 controller/service 和隔离 SQLite 库，不是生产阅读库验收。
-- 只支持本地账户；Feed CRUD、真实状态写入仍未开放。没有跨设备/iCloud/远端同步验收。
+- 元数据支持全部已启用账户；Feed CRUD、真实状态写入仍未开放。读取库内数据不代表跨设备/iCloud/远端同步已验收。
 - 会话/selection/游标不持久化；断开或重启失效。预算为每连接，重新连接可获得新预算；正式版需要跨连接全局配额与可见授权管理。
 - 分页是查询/会话绑定的短期 live-offset cursor，非冻结快照；并发增删可能重复或遗漏，每次最多扫描 500 候选。正文现有的会话限量不等于不可绕过的永久出库上限。
 - URL 已过滤 userinfo/query/fragment，但无法识别所有 path 内秘密；正文授权仍需人工审查隐私和内容使用范围。本地传输不等于外部模型处理在本机。
@@ -194,7 +194,7 @@ Bro 硬要求（UDS-only 非 fixture、enable gate listen/revoke、0700/0600+pee
 
 ## 常见客户端快速接入
 
-设置 → AI → MCP 提供 Cursor 安装链接；VS Code 和 VS Code Insiders 使用各自的 MCP 安装链接。Claude Code 与 Codex CLI 复制终端命令（Codex CLI、ChatGPT 桌面应用与 Codex IDE 扩展共享配置）。Claude Desktop、Windsurf / Devin Desktop 和 Gemini CLI 等其他客户端通过「复制配置」取得通用配置与提示词，按各自要求合并配置并保留其他服务器。连接时需要开启「连接外部助手」并保持 PaperRss 运行。
+设置 → AI → MCP 提供 Cursor 安装链接；VS Code 和 VS Code Insiders 使用各自的 MCP 安装链接。Codex CLI、Claude Code 与 DeepSeek dsh 复制终端命令（Codex CLI、ChatGPT 桌面应用与 Codex IDE 扩展共享配置）。Claude Desktop、Windsurf / Devin Desktop 和 Gemini CLI 等其他客户端通过「复制配置」取得通用配置与提示词，按各自要求合并配置并保留其他服务器。连接时需要开启「连接外部助手」并保持 PaperRss 运行。
 
 格式参考：[Cursor](https://cursor.com/docs/context/mcp/install-links)、[VS Code](https://code.visualstudio.com/api/extension-guides/ai/mcp)、[Claude Code](https://code.claude.com/docs/en/mcp)、[Codex](https://developers.openai.com/codex/mcp)、[Claude Desktop / MCP](https://modelcontextprotocol.io/docs/develop/connect-local-servers)、[Devin Desktop](https://docs.devin.ai/desktop/cascade/mcp)、[Gemini CLI](https://geminicli.com/docs/tools/mcp-server/)。
 
@@ -206,3 +206,40 @@ Bro 硬要求（UDS-only 非 fixture、enable gate listen/revoke、0700/0600+pee
 - Codex：[OpenAI 已验证的 Codex 扩展](https://open-vsx.org/extension/openai/chatgpt) 26.51021.22027 中的 `blossom.dark.png`；OpenAI 商标，按 [OpenAI 品牌指引](https://openai.com/brand/)用于标识集成。
 
 素材仅缩放，作为兼容性标识；带 bundle identifier 的目标优先通过 `NSWorkspace` 读取已安装应用的实际图标。
+
+
+## Batch 1：dsh、丰富状态与 App 内定位（2026-10-28）
+
+DeepSeek dsh 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)，npm 包 `@deepseek-ai/dsh`，命令为 `dsh`。它没有 `mcp add` 命令；设置行复制一条 POSIX sh 命令，使用 `@deepseek-ai/dsh-mcp-client` loader 插件，将以下条目写入 `${DSH_HOME:-$HOME/.dsh}/cordis.patch.yml` 顶层 YAML 数组，作用于每个 profile：
+
+```yaml
+- id: mcp-paperrss
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: paperrss
+    transport: stdio
+    command: '/Applications/PaperRss.app/Contents/MacOS/paperrss-agent'
+    args: [serve, --stdio, --client, dsh]
+    env:
+      PAPERRSS_AGENT_ENABLED: '1'
+```
+
+命令创建父目录、仅在不存在 `id: mcp-paperrss` 行时追加；纯空白/注释或空流数组 `[]` 会替换为新数组，其他条目保留。helper 路径分别进行 YAML 单引号和 shell 单引号转义。重复运行不重复添加；已有同 ID 条目不会更新，移动 App 后需手动更新该条目的路径。设置仍只复制命令，由用户在终端执行。
+
+依据：已安装 `@deepseek-ai/dsh` 的 README 及嵌套 `@deepseek-ai/dsh-mcp-client/README.md`。dsh 在重启或配置 HMR 时加载 patch；不支持 MCP prompts，工具名为 `mcp__paperrss__<tool>`。`AgentMCPDeepSeek` 图标来自该官方安装包内 `node_modules/@deepseek-ai/dsh-web-frontend/dist/favicon.svg`，仅用于标识集成。安装行使用 accessibility children contain，使行 ID 与内部 `settings.agentMCPInstall.<id>` 按钮 ID 均可访问。
+
+`paperrss_status` 保留原有字段，并增加：
+
+- `app: {version, build, debug}`：版本和构建号取 App 进程的 Bundle；SwiftPM 无 Bundle 元数据时为 `unknown`，绝不采用 helper 版本冒充。
+- `accounts[]: {account_id, type, display_name, enabled, server_host, feed_count, unread_count, last_sync_at, capabilities}`：包含 App 已知的禁用账户；禁用账户 capabilities 为空。type 为 `local` / `iCloud` / `freshRSS` / `miniflux`。
+- `server_host` 仅服务器账户返回 `host[:port]`，其他账户为 null；不返回 URL 的 userinfo、路径、查询或任何凭据字段。`last_sync_at` 为已知同步完成时间 ISO8601 或 null，本地账户可用最近 Feed 刷新时间。
+- 顶层 `capabilities` 为当前会话的 `metadata.read`、`content.read.selection`、`ui.open`；DB-only 测试未注入 opener 时没有 `ui.open`。`tools` 是 helper 公布的 11 个工具名称，包含尚未开放执行的写入契约；是否可执行以 capability / App 审批为准。
+
+快照由 attach(to:) 注入的 MainActor provider 读取 AppStore 账户/同步状态和既有 LibraryDatabase；不刷新、不同步、不访问网络。账户启停在后续请求中重新检查，不重置会话预算或授权。
+
+`paperrss_open` 参数为 `account_id`，加且仅加 `article_id` 或 `feed_id`。服务先校验账户已启用及对象所有权；不存在、不匹配或禁用返回 `NOT_FOUND`，参数组合非法返回 `INVALID_ARGUMENT`。App handler 选择侧栏 Feed，必要时打开文章阅读器并激活/恢复/重建主窗口。响应为 `{opened: "article"|"feed", id, title, feed_title}`，标题仍是不可信内容。该工具标注 readOnlyHint=true、idempotentHint=true、openWorldHint=false；Agent 打开显式抑制自动标已读（包括列表视觉状态），不需要写入授权，也不签发任何写入授权。
+
+UI 定位需要运行中的 App，helper 不负责启动 App。真实窗口、客户端与签名 Xcode 构建仍由人工验收；服务和导航模型测试不能替代该验收。
+
+
+本批自动化结果：仓库内 module cache 下 `swift build --disable-sandbox` 通过；Agent 相关筛选共 67 项，49 项通过，18 项因执行环境禁止绑定 Unix socket（`Cannot bind private listener` / `Operation not permitted`）受阻。非 IPC 的 45 项全部通过，包含新增快照脱敏、远程账户读取、open 与预算、动态自动已读抑制及 dsh shell 测试。dsh 另有 10 组实际命令/YAML 解析验证通过。完整日志：`build/reports/agent-batch1-build-local-cache.log`、`build/reports/agent-batch1-tests.log`、`build/reports/install-command-validation.log`。未启动真实 App、未修改客户端配置，Xcode 与窗口交互验收未执行。

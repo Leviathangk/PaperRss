@@ -21,12 +21,16 @@ public enum AgentMCPTools {
     private static func tool(_ name: String, _ description: String,
                              _ properties: [String: AgentJSON], required: [String],
                              readOnly: Bool = true, destructive: Bool = false,
-                             openWorld: Bool = false, idempotent: Bool = false) -> AgentJSON {
-        .object([
+                             openWorld: Bool = false, idempotent: Bool = false,
+                             exactlyOneOf: [String] = []) -> AgentJSON {
+        var schema: [String: AgentJSON] = ["type": .string("object"), "properties": .object(properties),
+            "required": .array(required.map(AgentJSON.string)), "additionalProperties": .bool(false)]
+        if !exactlyOneOf.isEmpty {
+            schema["oneOf"] = .array(exactlyOneOf.map { .object(["required": .array([.string($0)])]) })
+        }
+        return .object([
             "name": .string("paperrss_" + name), "description": .string(description),
-            "inputSchema": .object(["type": .string("object"), "properties": .object(properties),
-                                    "required": .array(required.map(AgentJSON.string)),
-                                    "additionalProperties": .bool(false)]),
+            "inputSchema": .object(schema),
             "annotations": .object(["readOnlyHint": .bool(readOnly), "destructiveHint": .bool(destructive),
                                     "openWorldHint": .bool(openWorld), "idempotentHint": .bool(idempotent)])
         ])
@@ -37,8 +41,11 @@ public enum AgentMCPTools {
         let page = integer(maximum: 50, default: 20)
         let key = string(128)
         return [
-            tool("status", "Report local enable/pair state and allowed capabilities; no credentials.",
+            tool("status", "Report App version, accounts, cached counts and session capabilities; no credentials or sync.",
                  ["plan_id": string(), "operation_id": string()], required: []),
+            tool("open", "Locate a feed or article in PaperRss without marking it read. Choose exactly one ID.",
+                 ["account_id": account, "article_id": article, "feed_id": feed],
+                 required: ["account_id"], idempotent: true, exactlyOneOf: ["article_id", "feed_id"]),
             tool("list_feeds", "List a bounded page of feeds and counts in an authorized account.",
                  ["account_id": account, "limit": page, "cursor": string()], required: ["account_id"]),
             tool("list_articles", "List metadata only. Query matches title/excerpt; never refreshes or marks read.",
@@ -84,6 +91,9 @@ public enum AgentMCPTools {
             throw AgentFailure("INVALID_ARGUMENT", "Unknown tool.")
         }
         try validate(value: .object(arguments), schema: schema)
+        if name == "paperrss_open", (arguments["article_id"] != nil) == (arguments["feed_id"] != nil) {
+            throw AgentFailure("INVALID_ARGUMENT", "Choose exactly one article_id or feed_id.")
+        }
         if name == "paperrss_list_articles" {
             let selected = arguments["scope"]?.stringValue == "selection"
             guard selected == (arguments["selection_id"] != nil) else {

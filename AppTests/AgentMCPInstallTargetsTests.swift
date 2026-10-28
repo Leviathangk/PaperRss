@@ -41,10 +41,58 @@ final class AgentMCPInstallTargetsTests: XCTestCase {
         XCTAssertEqual(AgentMCPInstallTarget.claudeCode.command(path: path), "claude mcp add --scope user --env PAPERRSS_AGENT_ENABLED=1 --transport stdio paperrss -- \(quoted) serve --stdio --client claude-code")
         XCTAssertEqual(AgentMCPInstallTarget.codex.command(path: path), "codex mcp add paperrss --env PAPERRSS_AGENT_ENABLED=1 -- \(quoted) serve --stdio --client codex")
     }
+    func testDSHCommandWritesYAMLAndIsIdempotent() throws {
+        // Execute the actual copied command, with both home locations isolated from user configuration.
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("build/reports/dsh-command-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        for useOverride in [false, true] {
+            for initial in [nil, "[]", "  [ ] # empty layer\n# comment\n", " \n\t", "- id: other\n  name: other-plugin"] as [String?] {
+                let home = root.appendingPathComponent(UUID().uuidString)
+                let directory = home.appendingPathComponent(useOverride ? "custom dsh's home" : ".dsh")
+                let file = directory.appendingPathComponent("cordis.patch.yml")
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                if let initial { try initial.write(to: file, atomically: true, encoding: .utf8) }
+                let command = try XCTUnwrap(AgentMCPInstallTarget.dsh.command(path: path))
+                for _ in 0..<2 {
+                    let process = Process()
+                    process.executableURL = URL(fileURLWithPath: "/bin/sh")
+                    process.arguments = ["-c", command]
+                    process.environment = ["HOME": home.path, "DSH_HOME": useOverride ? directory.path : "", "PATH": "/usr/bin:/bin"]
+                    try process.run()
+                    process.waitUntilExit()
+                    XCTAssertEqual(process.terminationStatus, 0)
+                }
+                let yaml = try String(contentsOf: file, encoding: .utf8)
+                let expected = """
+
+                - id: mcp-paperrss
+                  name: '@deepseek-ai/dsh-mcp-client'
+                  config:
+                    serverName: paperrss
+                    transport: stdio
+                    command: '/Applications/Paper Rss''s.app/Contents/MacOS/paperrss-agent'
+                    args: [serve, --stdio, --client, dsh]
+                    env:
+                      PAPERRSS_AGENT_ENABLED: '1'
+
+                """
+                XCTAssertEqual(yaml, (initial?.hasPrefix("- id: other") == true ? initial! : "") + expected)
+                // Decode the YAML single-quoted scalar and verify no shell quoting leaked into its value.
+                let scalar = try XCTUnwrap(yaml.components(separatedBy: "    command: '").last?.components(separatedBy: "'\n").first)
+                XCTAssertEqual(scalar.replacingOccurrences(of: "''", with: "'"), path)
+                XCTAssertEqual(yaml.components(separatedBy: "id: mcp-paperrss").count - 1, 1)
+            }
+        }
+    }
+
     func testTargetsAndMetadata() {
-        XCTAssertEqual(AgentMCPInstallTarget.allCases, [.cursor, .vscode, .vscodeInsiders, .claudeCode, .codex])
-        XCTAssertEqual(AgentMCPInstallTarget.allCases.map(\.label), ["cursor", "vscode", "vscode-insiders", "claude-code", "codex"])
-        XCTAssertEqual(AgentMCPInstallTarget.allCases.map(\.bundleIdentifier), ["com.todesktop.230313mzl4w4u92", "com.microsoft.VSCode", "com.microsoft.VSCodeInsiders", nil, nil])
-        XCTAssertEqual(AgentMCPInstallTarget.allCases.map(\.iconAssetName), ["AgentMCPCursor", "AgentMCPVSCode", "AgentMCPVSCode", "AgentMCPClaude", "AgentMCPCodex"])
+        XCTAssertEqual(AgentMCPInstallTarget.dsh.name, "DeepSeek dsh")
+        XCTAssertEqual(AgentMCPInstallTarget.dsh.kind, .command)
+        XCTAssertNil(AgentMCPInstallTarget.dsh.url(path: path))
+        XCTAssertEqual(AgentMCPInstallTarget.allCases, [.codex, .claudeCode, .dsh, .cursor, .vscode, .vscodeInsiders])
+        XCTAssertEqual(AgentMCPInstallTarget.allCases.map(\.label), ["codex", "claude-code", "dsh", "cursor", "vscode", "vscode-insiders"])
+        XCTAssertEqual(AgentMCPInstallTarget.allCases.map(\.bundleIdentifier), [nil, nil, nil, "com.todesktop.230313mzl4w4u92", "com.microsoft.VSCode", "com.microsoft.VSCodeInsiders"])
+        XCTAssertEqual(AgentMCPInstallTarget.allCases.map(\.iconAssetName), ["AgentMCPCodex", "AgentMCPClaude", "AgentMCPDeepSeek", "AgentMCPCursor", "AgentMCPVSCode", "AgentMCPVSCode"])
     }
 }

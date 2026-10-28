@@ -11,6 +11,7 @@ public actor AgentLibraryService: AgentBridge {
     private let provider: LocalAccountProvider
     private let engine: ArticlePreparationEngine
     private let clock: @Sendable () -> Date
+    private let opener: (@MainActor @Sendable (AgentOpenRequest) throws -> Void)?
     private var policy: AgentAccessPolicy
     private var remainingCharacters: Int
     private var requestTimes: [Date] = []
@@ -43,13 +44,22 @@ public actor AgentLibraryService: AgentBridge {
     public init(database: LibraryDatabase, accountID: String = "local-default",
                 policy: AgentAccessPolicy = AgentAccessPolicy(),
                 engine: ArticlePreparationEngine = ArticlePreparationEngine(),
-                clock: @escaping @Sendable () -> Date = { Date() }) {
+                clock: @escaping @Sendable () -> Date = { Date() },
+                opener: (@MainActor @Sendable (AgentOpenRequest) throws -> Void)? = nil) {
         self.database = database
         self.provider = LocalAccountProvider(accountID: accountID, database: database)
         self.policy = policy
         self.engine = engine
         self.clock = clock
+        self.opener = opener
         self.remainingCharacters = policy.outputCharacterBudget
+    }
+
+    /// App-owned account changes update scope without resetting budgets or approvals.
+    public func updateAccountIDs(_ accountIDs: Set<String>) {
+        policy.accountIDs = accountIDs
+        selections = selections.filter { accountIDs.contains($0.value.account) }
+        plans = plans.filter { accountIDs.contains($0.value.dto.account_id) }
     }
 
     /// App-only revocation: invalidates all grants immediately. Never exposed as an MCP tool.
@@ -100,6 +110,7 @@ public actor AgentLibraryService: AgentBridge {
         selections = selections.filter { $0.value.expires > now }
         plans = plans.filter { $0.value.dto.expires_at > now || $0.value.receipt != nil }
         switch tool {
+        case "paperrss_open": return try await open(a)
         case "paperrss_list_feeds": return try listFeeds(a)
         case "paperrss_list_articles": return try listArticles(a)
         case "paperrss_get_article":
@@ -156,16 +167,19 @@ public actor AgentLibraryService: AgentBridge {
     }
     private func authorize(_ account: String, write: Bool = false) throws {
         try requireEnabled()
-        guard policy.accountIDs.contains(account), account == provider.accountID else {
+        guard policy.accountIDs.contains(account) else {
             throw AgentFailure("UNAUTHORIZED", "Account is outside this session.")
         }
-        try database.read { db in try checkAccount(account, in: db) }
+        try database.read { db in try checkAccount(account, write: write, in: db) }
         if write && !policy.allowStateChanges { throw AgentFailure("UNAUTHORIZED", "State changes are not enabled.") }
     }
-    private func checkAccount(_ account: String, in db: Database) throws {
+    private func checkAccount(_ account: String, write: Bool = false, in db: Database) throws {
         guard let record = try AccountRecord.fetchOne(db, key: account), record.isEnabled,
-              record.type == AccountType.local.rawValue else {
-            throw AgentFailure("UNSUPPORTED", "This spike supports enabled local accounts only; synced accounts are blocked.")
+              AccountType(rawValue: record.type) != nil else {
+            throw AgentFailure("NOT_FOUND", "Enabled account not found.")
+        }
+        if write && (account != provider.accountID || record.type != AccountType.local.rawValue) {
+            throw AgentFailure("UNSUPPORTED", "State changes support the local account only.")
         }
     }
     private func string(_ a: [String: AgentJSON], _ key: String) throws -> String {
@@ -249,19 +263,64 @@ public actor AgentLibraryService: AgentBridge {
         return .string(id)
     }
     private func listFeeds(_ a: [String: AgentJSON]) throws -> AgentJSON {
-        try authorize(try string(a, "account_id"))
+        let account = try string(a, "account_id")
+        try authorize(account)
         let limit = try integer(a, "limit", default: 20, max: 50)
         let start = try offset(a)
-        let feeds = try provider.fetchFeeds().sorted { $0.id.uuidString < $1.id.uuidString }
-        let counts = try provider.timelineQueryService.fetchSidebarCounts(accountID: provider.accountID, startOfDayTimestamp: 0)
+        let feeds = try database.read { db in
+            try provider.feedRepository.fetchAllFeedModels(accountID: account, in: db)
+        }.sorted { $0.id.uuidString < $1.id.uuidString }
+        let counts = try provider.timelineQueryService.fetchSidebarCounts(accountID: account, startOfDayTimestamp: 0)
         let page = Array(feeds.dropFirst(start).prefix(limit))
         let titles = page.map { String($0.title.plainText.unicodeScalars.prefix(500)) }
         try charge(titles.reduce(0) { $0 + $1.unicodeScalars.count })
         return .object(["feeds": .array(zip(page, titles).map { feed, title in .object([
-            "id": .string(feed.id.uuidString), "account_id": .string(provider.accountID), "title": .string(title),
+            "id": .string(feed.id.uuidString), "account_id": .string(account), "title": .string(title),
             "unread_count": .number(Double(counts.unreadByFeed[feed.id] ?? 0)), "untrusted": .bool(true)
         ]) }), "next_cursor": start + page.count < feeds.count ? try nextCursor(a, offset: start + page.count) : .null])
     }
+    private func open(_ a: [String: AgentJSON]) async throws -> AgentJSON {
+        guard Set(a.keys).isSubset(of: ["account_id", "article_id", "feed_id"]),
+              (a["article_id"] != nil) != (a["feed_id"] != nil) else {
+            throw AgentFailure("INVALID_ARGUMENT", "Choose exactly one article_id or feed_id.")
+        }
+        let account = try string(a, "account_id")
+        let articleID = a["article_id"] == nil ? nil : try string(a, "article_id")
+        let feedID = a["feed_id"] == nil ? nil : try string(a, "feed_id")
+        guard policy.accountIDs.contains(account) else {
+            throw AgentFailure("NOT_FOUND", "Enabled account not found.")
+        }
+        let (request, title, feedTitle): (AgentOpenRequest, String, String) = try database.read { db in
+            try checkAccount(account, in: db)
+            if let articleID {
+                let (entry, feed) = try ownedEntry(articleID, account: account, in: db)
+                return (AgentOpenRequest(accountID: account, feedID: feed.id, articleID: articleID),
+                        String(entry.title.plainText.unicodeScalars.prefix(500)),
+                        String(feed.title.plainText.unicodeScalars.prefix(500)))
+            }
+            guard let feedID, let record = try provider.feedRepository.fetchFeed(id: feedID, in: db),
+                  record.accountID == account, !record.isDeleted,
+                  let feed = try provider.feedRepository.fetchFeedModel(id: feedID, in: db) else {
+                throw AgentFailure("NOT_FOUND", "Feed not found in the allowed account.")
+            }
+            let title = String(feed.title.plainText.unicodeScalars.prefix(500))
+            return (AgentOpenRequest(accountID: account, feedID: feed.id), title, title)
+        }
+        guard let opener else { throw AgentFailure("UNSUPPORTED", "App navigation is unavailable.") }
+        let cost = title.unicodeScalars.count + feedTitle.unicodeScalars.count
+        try Task.checkCancellation()
+        try charge(cost)
+        do {
+            try await MainActor.run {
+                try Task.checkCancellation()
+                try opener(request)
+            }
+        } catch { remainingCharacters += cost; throw error }
+        return .object(["opened": .string(articleID == nil ? "feed" : "article"),
+                        "id": .string(articleID ?? request.feedID.uuidString),
+                        "title": .string(title), "feed_title": .string(feedTitle)])
+    }
+
     private func listArticles(_ a: [String: AgentJSON]) throws -> AgentJSON {
         let account = try string(a, "account_id")
         try authorize(account)
@@ -347,7 +406,7 @@ public actor AgentLibraryService: AgentBridge {
         let ids = raw.compactMap(\.stringValue)
         guard Set(ids).count == ids.count, plans.count < 100 else { throw AgentFailure("INVALID_ARGUMENT", "Duplicate IDs or too many pending plans.") }
         let before = try database.read { db in
-            try checkAccount(account, in: db)
+            try checkAccount(account, write: true, in: db)
             return try Dictionary(uniqueKeysWithValues: ids.map { id in
                 let (entry, _) = try ownedEntry(id, account: account, in: db)
                 guard inMetadataScope(entry, account: account) else { throw AgentFailure("UNAUTHORIZED", "Article is outside the granted scope.") }
@@ -383,7 +442,7 @@ public actor AgentLibraryService: AgentBridge {
             // The writer queue can be busy longer than the approval lifetime.
             try Task.checkCancellation()
             guard dto.expires_at > clock() else { throw AgentFailure("CONFLICT", "Plan expired while waiting for the writer transaction.") }
-            try checkAccount(dto.account_id, in: db)
+            try checkAccount(dto.account_id, write: true, in: db)
             for articleID in dto.article_ids {
                 _ = try ownedEntry(articleID, account: dto.account_id, in: db)
                 guard let current = try provider.stateRepository.fetchState(itemID: articleID, in: db), current == expected[articleID] else {

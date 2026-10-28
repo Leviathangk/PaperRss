@@ -2,7 +2,7 @@
 import Foundation
 
 enum AgentMCPInstallTarget: String, CaseIterable, Identifiable {
-    case cursor, vscode, vscodeInsiders, claudeCode, codex
+    case codex, claudeCode, dsh, cursor, vscode, vscodeInsiders
     enum Kind { case deeplink, command }
     var id: String { rawValue }
     var label: String {
@@ -19,12 +19,13 @@ enum AgentMCPInstallTarget: String, CaseIterable, Identifiable {
         case .vscodeInsiders: return "VS Code Insiders"
         case .claudeCode: return "Claude Code"
         case .codex: return "Codex CLI"
+        case .dsh: return "DeepSeek dsh"
         }
     }
     var kind: Kind {
         switch self {
         case .cursor, .vscode, .vscodeInsiders: return .deeplink
-        case .claudeCode, .codex: return .command
+        case .claudeCode, .codex, .dsh: return .command
         }
     }
     var bundleIdentifier: String? {
@@ -32,7 +33,7 @@ enum AgentMCPInstallTarget: String, CaseIterable, Identifiable {
         case .cursor: return "com.todesktop.230313mzl4w4u92"
         case .vscode: return "com.microsoft.VSCode"
         case .vscodeInsiders: return "com.microsoft.VSCodeInsiders"
-        case .claudeCode, .codex: return nil
+        case .claudeCode, .codex, .dsh: return nil
         }
     }
     var iconAssetName: String {
@@ -41,6 +42,7 @@ enum AgentMCPInstallTarget: String, CaseIterable, Identifiable {
         case .vscode, .vscodeInsiders: return "AgentMCPVSCode"
         case .claudeCode: return "AgentMCPClaude"
         case .codex: return "AgentMCPCodex"
+        case .dsh: return "AgentMCPDeepSeek"
         }
     }
     private func server(path: String) -> [String: Any] {
@@ -76,6 +78,15 @@ enum AgentMCPInstallTarget: String, CaseIterable, Identifiable {
         switch self {
         case .claudeCode: return "claude mcp add --scope user --env PAPERRSS_AGENT_ENABLED=1 --transport stdio paperrss -- \(quoted) serve --stdio --client \(label)"
         case .codex: return "codex mcp add paperrss --env PAPERRSS_AGENT_ENABLED=1 -- \(quoted) serve --stdio --client \(label)"
+        case .dsh:
+            // YAML and POSIX shell quoting are separate layers; never interpolate the path as shell code.
+            let yamlPath = "'" + path.replacingOccurrences(of: "'", with: "''") + "'"
+            let lines = ["", "- id: mcp-paperrss", "  name: '@deepseek-ai/dsh-mcp-client'", "  config:",
+                         "    serverName: paperrss", "    transport: stdio", "    command: \(yamlPath)",
+                         "    args: [serve, --stdio, --client, dsh]", "    env:", "      PAPERRSS_AGENT_ENABLED: '1'"]
+            let payload = lines.map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }.joined(separator: " ")
+            // Empty flow arrays cannot be followed by block-array entries. Ignore comments when checking emptiness.
+            return #"f="${DSH_HOME:-$HOME/.dsh}/cordis.patch.yml"; mkdir -p "$(dirname "$f")" && if ! grep -Eq '^[[:space:]]*(-[[:space:]]*)?id:[[:space:]]*mcp-paperrss([[:space:]]*(#.*)?)?$' "$f" 2>/dev/null; then if [ ! -e "$f" ] || awk '{sub(/#.*/, ""); gsub(/[[:space:]]/, ""); s=s $0} END {exit !(s == "" || s == "[]")}' "$f"; then : > "$f"; fi && printf '%s\n' "# + payload + #" >> "$f"; fi"#
         default: return nil
         }
     }

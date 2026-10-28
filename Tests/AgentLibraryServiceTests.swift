@@ -362,6 +362,130 @@ final class AgentLibraryServiceTests: XCTestCase {
         XCTAssertEqual(retry["local_commit"], .string("committed"))
     }
 
+    func testReadsUseEveryEnabledAccountWithoutRelaxingContentOrWrites() async throws {
+        let fixture = try Fixture(); defer { try? fixture.remove() }
+        let service = fixture.service()
+        var allowed: Set<String> = ["local-default"]
+        for type in [AccountType.iCloud, .freshRSS, .miniflux] {
+            let id = "fixture-" + type.rawValue
+            let provider = LocalAccountProvider(accountID: id, database: fixture.database)
+            try provider.ensureAccountExists()
+            try fixture.database.write { db in
+                try db.execute(sql: "UPDATE accounts SET type = ? WHERE id = ?", arguments: [type.rawValue, id])
+            }
+            let feed = try provider.addFeed(title: type.rawValue, feedURL: URL(string: "https://example.org/" + id)!)
+            let article = id + "-article"
+            try fixture.database.write { db in
+                try ItemRecord(id: article, accountID: id, externalID: article, feedID: feed.id.uuidString,
+                               createdAt: 1, updatedAt: 1).insert(db)
+                try ArticleRecord(itemID: article, title: "Remote metadata", summary: "Summary").insert(db)
+                try ArticleStateRecord(itemID: article, isRead: false, isStarred: false,
+                                       dateArrived: 1, updatedAt: 1).insert(db)
+            }
+            allowed.insert(id)
+            await service.updateAccountIDs(allowed)
+            let feeds = try await service.call(tool: "paperrss_list_feeds", arguments: ["account_id": .string(id)])
+            XCTAssertEqual(feeds["feeds"]?.arrayValue?.map { $0["id"] }, [.string(feed.id.uuidString)])
+            XCTAssertEqual(feeds["feeds"]?.arrayValue?.first?["unread_count"], .number(1))
+            let articles = try await service.call(tool: "paperrss_list_articles", arguments: ["account_id": .string(id), "scope": .string("unread")])
+            XCTAssertEqual(articles["articles"]?.arrayValue?.map { $0["id"] }, [.string(article)])
+            let metadata = try await service.call(tool: "paperrss_get_article", arguments: ["account_id": .string(id), "article_id": .string(article)])
+            XCTAssertEqual(metadata["account_id"], .string(id))
+            await expectFailure("UNAUTHORIZED") {
+                _ = try await service.call(tool: "paperrss_get_content", arguments: ["account_id": .string(id), "article_id": .string(article), "selection_id": .string("self-approved")])
+            }
+            await expectFailure("UNSUPPORTED") {
+                _ = try await service.call(tool: "paperrss_plan_state_change", arguments: ["account_id": .string(id), "article_ids": .array([.string(article)]), "field": .string("read"), "value": .bool(true)])
+            }
+            try fixture.database.write { db in
+                try db.execute(sql: "UPDATE accounts SET is_enabled = 0 WHERE id = ?", arguments: [id])
+            }
+            await expectFailure("NOT_FOUND") {
+                _ = try await service.call(tool: "paperrss_list_feeds", arguments: ["account_id": .string(id)])
+            }
+        }
+        let local = try await service.call(tool: "paperrss_list_feeds", arguments: ["account_id": account])
+        XCTAssertEqual(local["feeds"]?.arrayValue?.count, 1)
+    }
+
+    func testOpenCallsInjectedUIWithOwnedIDsWithoutChangingReadState() async throws {
+        let fixture = try Fixture(); defer { try? fixture.remove() }
+        var requests: [AgentOpenRequest] = []
+        let service = AgentLibraryService(database: fixture.database,
+            policy: AgentAccessPolicy(enabled: true, accountIDs: ["local-default"]),
+            opener: { requests.append($0) })
+        let before = try fixture.state("a")
+        let article = try await service.call(tool: "paperrss_open", arguments: ["account_id": account, "article_id": .string("a")])
+        XCTAssertEqual(article["opened"], .string("article"))
+        XCTAssertEqual(article["id"], .string("a"))
+        XCTAssertEqual(article["title"], .string("Swift concurrency"))
+        XCTAssertEqual(article["feed_title"], .string("Fixture feed"))
+        XCTAssertEqual(try fixture.state("a"), before)
+        let feed = try await service.call(tool: "paperrss_open", arguments: ["account_id": account, "feed_id": .string(fixture.feed.id.uuidString)])
+        XCTAssertEqual(feed["opened"], .string("feed"))
+        XCTAssertEqual(requests, [AgentOpenRequest(accountID: "local-default", feedID: fixture.feed.id, articleID: "a"),
+                                  AgentOpenRequest(accountID: "local-default", feedID: fixture.feed.id)])
+        // Read articles outside metadata scope may still be located without granting content.
+        _ = try await service.call(tool: "paperrss_open", arguments: ["account_id": account, "article_id": .string("c")])
+        XCTAssertTrue(try fixture.state("c").isRead)
+    }
+
+    func testOpenReservesBudgetBeforeUIAndRefundsFailedNavigation() async throws {
+        let fixture = try Fixture(); defer { try? fixture.remove() }
+        var attempts = 0
+        let small = AgentLibraryService(database: fixture.database,
+            policy: AgentAccessPolicy(enabled: true, accountIDs: ["local-default"], outputCharacterBudget: 1),
+            opener: { _ in attempts += 1 })
+        let arguments: [String: AgentJSON] = ["account_id": account, "article_id": .string("a")]
+        await expectFailure("CONTENT_BUDGET_EXCEEDED") {
+            _ = try await small.call(tool: "paperrss_open", arguments: arguments)
+        }
+        XCTAssertEqual(attempts, 0)
+        let failing = AgentLibraryService(database: fixture.database,
+            policy: AgentAccessPolicy(enabled: true, accountIDs: ["local-default"], outputCharacterBudget: 100),
+            opener: { _ in attempts += 1; throw AgentFailure("NOT_FOUND", "Fixture navigation failed.") })
+        await expectFailure("NOT_FOUND") {
+            _ = try await failing.call(tool: "paperrss_open", arguments: arguments)
+        }
+        XCTAssertEqual(attempts, 1)
+        let status = try await failing.call(tool: "paperrss_status", arguments: [:])
+        XCTAssertEqual(status["remaining_characters"], .number(100))
+        XCTAssertFalse(try fixture.state("a").isRead)
+    }
+
+    func testOpenRejectsInvalidTargetsDisabledAndForeignAccountsBeforeUI() async throws {
+        let fixture = try Fixture(); defer { try? fixture.remove() }
+        var requests: [AgentOpenRequest] = []
+        let service = AgentLibraryService(database: fixture.database,
+            policy: AgentAccessPolicy(enabled: true, accountIDs: ["local-default", "other"]),
+            opener: { requests.append($0) })
+        for args: [String: AgentJSON] in [
+            ["account_id": account], ["account_id": account, "article_id": .string("a"), "feed_id": .string("f")],
+            ["account_id": account, "article_id": .null], ["account_id": account, "feed_id": .string("")]
+        ] {
+            await expectFailure("INVALID_ARGUMENT") { _ = try await service.call(tool: "paperrss_open", arguments: args) }
+        }
+        let other = LocalAccountProvider(accountID: "other", database: fixture.database)
+        try other.ensureAccountExists()
+        for args: [String: AgentJSON] in [
+            ["account_id": .string("other"), "article_id": .string("a")],
+            ["account_id": .string("other"), "feed_id": .string(fixture.feed.id.uuidString)],
+            ["account_id": .string("unknown"), "article_id": .string("a")],
+            ["account_id": account, "article_id": .string("missing")],
+            ["account_id": account, "feed_id": .string(UUID().uuidString)]
+        ] {
+            await expectFailure("NOT_FOUND") { _ = try await service.call(tool: "paperrss_open", arguments: args) }
+        }
+        try fixture.database.write { db in
+            try db.execute(sql: "UPDATE accounts SET is_enabled = 0 WHERE id = ?", arguments: ["local-default"])
+        }
+        await expectFailure("NOT_FOUND") {
+            _ = try await service.call(tool: "paperrss_open", arguments: ["account_id": account, "article_id": .string("a")])
+        }
+        XCTAssertTrue(requests.isEmpty)
+        XCTAssertFalse(try fixture.state("a").isRead)
+    }
+
     func testStateCapabilityAndSyncedAccountsAreRejected() async throws {
         let fixture = try Fixture(); defer { try? fixture.remove() }
         let readOnly = fixture.service(writes: false)

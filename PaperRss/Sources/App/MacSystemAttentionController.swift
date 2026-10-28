@@ -420,12 +420,18 @@ final class MacSystemAttentionController: NSObject, ObservableObject {
         bringAppForward()
     }
 
+    func openAgent(_ request: AgentOpenRequest) {
+        navigation.openAgent(request: request)
+        bringAppForward()
+    }
+
     private func bringAppForward() {
         guard let application else { return }
         // 辅助策略下激活不会带回 Dock 图标与 Cmd+Tab：先恢复常规策略再唤出窗口。
         prepareRegularPolicyForPresentation(application)
         application.activate(ignoringOtherApps: true)
         if let window = mainWindow(in: application) {
+            if window.isMiniaturized { window.deminiaturize(nil) }
             window.makeKeyAndOrderFront(nil)
         } else if let miniaturized = miniaturizedWindow(in: application) {
             // 最小化窗口不在主窗口判定里：直接还原，避免再开一个窗口。
@@ -443,15 +449,13 @@ final class MacSystemAttentionController: NSObject, ObservableObject {
     }
 
     private func miniaturizedWindow(in application: NSApplication) -> NSWindow? {
-        application.windows.first { $0.isMiniaturized && !($0 is NSPanel) }
+        application.windows.first { $0.isMiniaturized && SettingsWindowRoute.RouteView.routes.object(forKey: $0) != nil }
     }
 
     private func mainWindow(in application: NSApplication) -> NSWindow? {
-        let settingsWindowIdentifier = NSUserInterfaceItemIdentifier("com_apple_SwiftUI_Settings_window")
-        return application.windows.first {
-            $0.canBecomeMain
-                && !($0 is NSPanel)
-                && $0.identifier != settingsWindowIdentifier
+        application.windows.first {
+            ($0.isVisible || $0.isMiniaturized)
+                && SettingsWindowRoute.RouteView.routes.object(forKey: $0) != nil
         }
     }
 }

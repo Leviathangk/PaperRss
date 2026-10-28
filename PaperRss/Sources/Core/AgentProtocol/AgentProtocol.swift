@@ -56,3 +56,10 @@ public struct AgentFailure: Error, Sendable, Equatable {
 public protocol AgentBridge: Sendable {
     func call(tool: String, arguments: [String: AgentJSON]) async throws -> AgentJSON
 }
+
+/// Shared discovery names keep the App status and helper tools/list aligned.
+public enum AgentToolCatalog {
+    public static let names = ["status", "list_feeds", "list_articles", "get_article", "get_content", "open",
+                               "plan_state_change", "apply_state_change", "add_feed", "rename_feed", "remove_feed"]
+        .map { "paperrss_" + $0 }
+}

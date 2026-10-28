@@ -5,7 +5,7 @@ import PaperRssAgentProtocol
 
 public struct AgentAccessPolicy: Sendable {
     public var enabled: Bool
-    public let accountIDs: Set<String>
+    public var accountIDs: Set<String>
     public let allowStarred: Bool
     public let allowStateChanges: Bool
     public let outputCharacterBudget: Int
@@ -57,4 +57,51 @@ public struct AgentArticleMetadata: Codable, Sendable {
     public let retrieved_at: Date
     public let truncated: Bool
     public let untrusted: Bool
+}
+
+/// Validated navigation intent; UI execution belongs to the App process.
+public struct AgentOpenRequest: Sendable, Equatable {
+    public let accountID: String
+    public let feedID: UUID
+    public let articleID: String?
+    public init(accountID: String, feedID: UUID, articleID: String? = nil) {
+        self.accountID = accountID
+        self.feedID = feedID
+        self.articleID = articleID
+    }
+}
+
+public enum AgentAccountSnapshots {
+    /// Explicit allowlist: endpoint, username and sync errors never enter the wire DTO.
+    public static func read(database: LibraryDatabase, accounts: [AccountRecord]? = nil,
+                                 syncStates: [String: AccountSyncStateRecord]? = nil,
+                                 canOpen: Bool = false) throws -> [AgentJSON] {
+        let repository = AccountRepository(database: database)
+        let records = try accounts ?? database.read { try repository.fetchAllAccounts(in: $0) }
+        return try records.map { account in
+            let provider = LocalAccountProvider(accountID: account.id, database: database)
+            let feeds = try provider.fetchFeeds()
+            let counts = try provider.timelineQueryService.fetchSidebarCounts(accountID: account.id, startOfDayTimestamp: 0)
+            let sync = try syncStates?[account.id] ?? database.read { try repository.fetchSyncState(accountID: account.id, in: $0) }
+            let timestamp = sync?.lastSyncCompletedAt ?? (account.type == AccountType.local.rawValue
+                ? feeds.compactMap(\.lastRefreshedAt).max()?.timeIntervalSince1970 : nil)
+            var host: String?
+            if [AccountType.freshRSS.rawValue, AccountType.miniflux.rawValue].contains(account.type),
+               let raw = account.endpointURL, let url = URLComponents(string: raw),
+               ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+               let value = url.host, !value.isEmpty,
+               !value.contains("@"), !value.contains("%"), !value.contains("/"),
+               !value.contains("?"), !value.contains("#") {
+                host = value + (url.port.map { ":\($0)" } ?? "")
+            }
+            return .object([
+                "account_id": .string(account.id), "type": .string(account.type),
+                "display_name": .string(account.displayName), "enabled": .bool(account.isEnabled),
+                "server_host": host.map(AgentJSON.string) ?? .null,
+                "feed_count": .number(Double(feeds.count)), "unread_count": .number(Double(counts.allUnread)),
+                "last_sync_at": timestamp.map { .string(ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: $0))) } ?? .null,
+                "capabilities": .array((account.isEnabled ? ["metadata.read", "content.read.selection"] + (canOpen ? ["ui.open"] : []) : []).map(AgentJSON.string))
+            ])
+        }
+    }
 }

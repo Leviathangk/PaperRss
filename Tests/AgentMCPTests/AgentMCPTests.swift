@@ -52,16 +52,17 @@ final class AgentMCPTests: XCTestCase {
         XCTAssertEqual(reply?["result"]?["protocolVersion"], .string("2025-03-26"))
     }
 
-    func testRegistrationHasTenStrictToolsAndSecurityAnnotations() async throws {
+    func testRegistrationHasElevenStrictToolsAndSecurityAnnotations() async throws {
         let server = AgentMCPServer(bridge: AgentUnavailableBridge())
         await initialize(server)
         let reply = await server.handle(request("tools/list"))
         let tools = try XCTUnwrap(reply?["result"]?["tools"]?.arrayValue)
         XCTAssertEqual(Set(tools.compactMap { $0["name"]?.stringValue }), Set([
-            "paperrss_status", "paperrss_list_feeds", "paperrss_list_articles", "paperrss_get_article",
+            "paperrss_status", "paperrss_open", "paperrss_list_feeds", "paperrss_list_articles", "paperrss_get_article",
             "paperrss_get_content", "paperrss_plan_state_change", "paperrss_apply_state_change",
             "paperrss_add_feed", "paperrss_rename_feed", "paperrss_remove_feed"
         ]))
+        XCTAssertEqual(Set(tools.compactMap { $0["name"]?.stringValue }), Set(AgentToolCatalog.names))
         for tool in tools {
             XCTAssertEqual(tool["inputSchema"]?["additionalProperties"], .bool(false))
         }
@@ -72,6 +73,32 @@ final class AgentMCPTests: XCTestCase {
         let apply = try XCTUnwrap(tools.first { $0["name"]?.stringValue == "paperrss_apply_state_change" })
         XCTAssertEqual(apply["annotations"]?["destructiveHint"], .bool(true))
         XCTAssertEqual(apply["annotations"]?["idempotentHint"], .bool(true))
+    }
+
+    func testOpenHasReadOnlyAnnotationsAndExactlyOneTarget() async throws {
+        let definition = try XCTUnwrap(AgentMCPTools.definitions.first { $0["name"] == .string("paperrss_open") })
+        XCTAssertEqual(definition["annotations"]?["readOnlyHint"], .bool(true))
+        XCTAssertEqual(definition["annotations"]?["idempotentHint"], .bool(true))
+        XCTAssertEqual(definition["annotations"]?["openWorldHint"], .bool(false))
+        XCTAssertEqual(definition["inputSchema"]?["oneOf"]?.arrayValue?.count, 2)
+        let bridge = RecordingBridge()
+        let server = AgentMCPServer(bridge: bridge)
+        await initialize(server)
+        for key in ["article_id", "feed_id"] {
+            let arguments: [String: AgentJSON] = ["account_id": .string("allowed"), key: .string("target")]
+            let reply = await server.handle(call("paperrss_open", arguments: arguments))
+            XCTAssertEqual(reply?["result"]?["isError"], .bool(false))
+            let recorded = await bridge.lastCall
+            XCTAssertEqual(recorded?.0, "paperrss_open")
+            XCTAssertEqual(recorded?.1, arguments)
+        }
+        for extra: [String: AgentJSON] in [[:], ["article_id": .string("a"), "feed_id": .string("f")],
+                                          ["article_id": .null], ["feed_id": .string("")]] {
+            var arguments: [String: AgentJSON] = ["account_id": .string("allowed")]
+            arguments.merge(extra) { _, new in new }
+            let reply = await server.handle(call("paperrss_open", arguments: arguments))
+            XCTAssertEqual(reply?["result"]?["structuredContent"]?["error"]?["code"], .string("INVALID_ARGUMENT"))
+        }
     }
 
     func testRequestMapsExactlyToBridgeAndResultHasBothRepresentations() async throws {
@@ -180,6 +207,11 @@ final class AgentMCPTests: XCTestCase {
         await initialize(server)
         let status = await server.handle(call("paperrss_status"))
         XCTAssertEqual(status?["result"]?["structuredContent"]?["data"]?["fixture"], .bool(true))
+        XCTAssertEqual(status?["result"]?["structuredContent"]?["data"]?["tools"], .array(AgentToolCatalog.names.map(AgentJSON.string)))
+        let open = await server.handle(call("paperrss_open", arguments: [
+            "account_id": .string("fixture-local"), "article_id": .string("fixture-article")
+        ]))
+        XCTAssertEqual(open?["result"]?["structuredContent"]?["error"]?["code"], .string("UNSUPPORTED"))
         let content = await server.handle(call("paperrss_get_content", arguments: [
             "account_id": .string("fixture-local"), "article_id": .string("fixture-article"), "selection_id": .string("invented")
         ]))

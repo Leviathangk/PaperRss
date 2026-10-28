@@ -3054,6 +3054,7 @@ struct SettingsView: View {
                 .accessibilityIdentifier("settings.agentMCPInstall.\(target.id)")
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("settings.agentMCPRow.\(target.id)")
     }
     #endif

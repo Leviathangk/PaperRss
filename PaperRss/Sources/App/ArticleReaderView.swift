@@ -94,6 +94,10 @@ struct ArticleReaderView: View {
     @ObservedObject var store: AppStore
     @ObservedObject var aiWorkspace: ArticleAIWorkspace
     let entry: Entry
+    var autoMarkRead = true
+    // Read the navigation model when the deferred write executes, including
+    // when an agent reopens the same article before an older load task runs.
+    var canAutomaticallyMarkRead: (String) -> Bool = { _ in true }
     var appearanceMode: ReaderAppearanceMode?
     var shortcutInvocation: ReaderShortcutInvocation?
     var onReaderShortcut: (ReaderShortcutAction) -> Void = { _ in }
@@ -423,7 +427,8 @@ struct ArticleReaderView: View {
             // markRead 含同步 DB 写 + 侧栏聚合 + objectWillChange，
             // 推迟到过渡帧之后执行，避免切换瞬间叠加额外渲染压力。
             Task { @MainActor in
-                guard activeLoadEntryID == requestedEntry.id,
+                guard autoMarkRead, canAutomaticallyMarkRead(requestedEntry.id),
+                      activeLoadEntryID == requestedEntry.id,
                       articleLoadSession == requestedLoadSession,
                       !requestedEntry.isRead else { return }
                 store.markReadFromReader(requestedEntry)

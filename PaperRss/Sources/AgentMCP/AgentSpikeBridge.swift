@@ -33,6 +33,8 @@ public struct AgentFixtureBridge: AgentBridge {
             return .object(["version": .string("0.1.0-spike"), "enabled": .bool(true),
                             "paired": .bool(false), "pair_state": .string("fixture_only"),
                             "transport": .string("fixture"), "fixture": .bool(true),
+                            "tools": .array(AgentToolCatalog.names.map(AgentJSON.string)),
+                            "capabilities": .array([.string("metadata.read")]),
                             "allowed_accounts": .array([.object(["account_id": .string("fixture-local"),
                                 "capabilities": .array([.string("metadata.read")])])]),
                             "accounts": .array([.object(["account_id": .string("fixture-local"),
@@ -46,6 +48,8 @@ public struct AgentFixtureBridge: AgentBridge {
             throw AgentFailure("INVALID_ARGUMENT", "Fixture has one page and does not accept cursors.")
         }
         switch tool {
+        case "paperrss_open":
+            throw AgentFailure("UNSUPPORTED", "Fixture has no App window to open.")
         case "paperrss_list_feeds":
             return .object(["feeds": .array([.object(["id": .string("fixture-feed"), "title": .string("PaperRss smoke fixture"),
                 "unread_count": .number(1), "article_count": .number(1)])]), "next_cursor": .null])
