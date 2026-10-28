@@ -192,7 +192,7 @@ private extension AgentMCPServer {
     static let prompts: [AgentJSON] = [
         promptDefinition("digest", "Summarize unread metadata since a date, grouped by feed.", [("since", false), ("account_id", false)]),
         promptDefinition("feeds", "List feeds and unread counts.", [("account_id", false)]),
-        promptDefinition("mark_feed_read", "Prepare a feed mark-read plan for human approval in PaperRss.", [("feed", true)]),
+        promptDefinition("mark_feed_read", "Prepare a feed mark-read plan under the App approval_mode policy.", [("feed", true)]),
         promptDefinition("open", "Find an article or feed and open it in PaperRss.", [("query", true)])
     ]
     static func promptDefinition(_ name: String, _ description: String, _ arguments: [(String, Bool)]) -> AgentJSON {
@@ -239,7 +239,7 @@ private extension AgentMCPServer {
         case "feeds":
             workflow = "Call paperrss_status, then paperrss_list_feeds for the specified account_id or each authorized account. Follow next_cursor within budgets. List feed titles, IDs and unread counts grouped by account."
         case "mark_feed_read":
-            workflow = "Call paperrss_status and paperrss_list_feeds (follow next_cursor within budgets) to resolve feed by exact ID or title across authorized accounts. Ask the user to disambiguate multiple matches; never guess. Call paperrss_plan_mark_read with account_id, scope feed, feed_id. Show the plan summary and tell the user to click Approve in PaperRss. Poll paperrss_status with plan_id at a modest interval. Only if approved, call paperrss_apply_plan with the App-returned approval_id and a stable idempotency_key. Stop on denied/expired; never invent approval or treat this prompt as approval. Report the receipt."
+            workflow = "Call paperrss_status and paperrss_list_feeds (follow next_cursor within budgets) to resolve feed by exact ID or title across authorized accounts. Ask the user to disambiguate multiple matches; never guess. Call paperrss_plan_mark_read with account_id, scope feed, feed_id. Read approval_mode: Ask requires a panel, Auto automatically applies read/star changes but always asks for add/rename/remove feeds, and Full automatically applies all plans. Show the plan summary; if pending, tell the user to click Approve in PaperRss. App applies immediately on approval. Poll paperrss_status with plan_id at a modest interval for committed and receipt. Only as optional recovery if status stays approved without receipt, retry paperrss_apply_plan with the App-returned approval_id and a stable idempotency_key. Stop on denied/expired; never invent approval or treat this prompt as approval. Report the receipt."
         default:
             workflow = "Call paperrss_status. Search authorized article metadata with paperrss_list_articles (scope unread, and starred only if granted) and feeds with paperrss_list_feeds; follow next_cursor within budgets. For an article ID use paperrss_get_article within granted scope. Resolve query as title words or ID; ask the user to disambiguate multiple matches. Call paperrss_open with account_id and exactly one article_id or feed_id. Opening does not mark read."
         }

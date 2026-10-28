@@ -272,6 +272,7 @@ struct SettingsView: View {
     #if os(macOS)
     @ObservedObject private var agentApprovals = AgentBridgeController.shared.approvalCenter
     @AppStorage(AgentBridgeController.enableKey) private var agentMCPEnabled = false
+    @AppStorage(AgentBridgeController.approvalModeKey) private var agentMCPApprovalMode = AgentMCPApprovalMode.ask.rawValue
     @State private var agentMCPInstallCopied: String?
     @State private var agentMCPInstallError: String?
     @State private var agentMCPInstallCopyTask: Task<Void, Never>?
@@ -2969,6 +2970,19 @@ struct SettingsView: View {
             }
 
             VStack(alignment: .leading, spacing: 20) {
+                settingsGroup(I18N.shared.localized("审批模式", "Approval Mode")) {
+                    settingsRow(I18N.shared.localized("审批模式", "Approval Mode"), description: I18N.shared.localized(
+                        "询问：批准后立即执行。自动审批：仅自动更改已读或收藏状态；添加、重命名和删除订阅源仍需询问。完全权限：所有操作自动执行。",
+                        "Ask: apply immediately after approval. Auto: automatically change read/starred state; adding, renaming and removing feeds still require approval. Full: automatically apply all operations.")) {
+                        Picker(I18N.shared.localized("审批模式", "Approval Mode"), selection: $agentMCPApprovalMode) {
+                            Text(I18N.shared.localized("询问", "Ask")).tag(AgentMCPApprovalMode.ask.rawValue)
+                            Text(I18N.shared.localized("自动审批", "Auto")).tag(AgentMCPApprovalMode.auto.rawValue)
+                            Text(I18N.shared.localized("完全权限", "Full")).tag(AgentMCPApprovalMode.full.rawValue)
+                        }
+                        .labelsHidden()
+                        .accessibilityIdentifier("settings.agentMCPApprovalMode")
+                    }
+                }
                 settingsGroup(I18N.shared.localized("一键安装", "One-Click Install")) {
                     let targets = AgentMCPInstallTarget.allCases.filter {
                         $0 != .vscodeInsiders || $0.bundleIdentifier.flatMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) } != nil

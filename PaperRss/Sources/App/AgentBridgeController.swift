@@ -7,11 +7,27 @@ import PaperRssAgentProtocol
 import AppKit
 #endif
 
+enum AgentMCPApprovalMode: String, CaseIterable {
+    case ask, auto, full
+
+    func automaticallyApplies(actionKind: String) -> Bool {
+        // Auto permits only read/star state changes. Add/rename always ask; Auto never deletes feeds.
+        self == .full || (self == .auto && ["mark_read", "state_change"].contains(actionKind))
+    }
+
+    var stateCapability: String { self == .full ? "state.write" : "state.write.approval" }
+    var feedCapability: String { self == .full ? "feeds.manage" : "feeds.manage.approval" }
+}
+
 /// One process-owned endpoint. Only the App injects its already-open library.
 @MainActor
 final class AgentBridgeController: AgentBridge {
     static let shared = AgentBridgeController()
     static let enableKey = "PaperRss.agentMCPEnabled"
+    static let approvalModeKey = "PaperRss.agentMCPApprovalMode"
+    private var approvalMode: AgentMCPApprovalMode {
+        AgentMCPApprovalMode(rawValue: defaults.string(forKey: Self.approvalModeKey) ?? "") ?? .ask
+    }
     private let defaults: UserDefaults
     private var database: LibraryDatabase?
     private var accountID = "local-default"
@@ -211,19 +227,33 @@ final class AgentBridgeController: AgentBridge {
             throw AgentFailure("NOT_ENABLED", "Local agent access was revoked during the request.")
         }
         if ["paperrss_plan_state_change", "paperrss_plan_mark_read", "paperrss_plan_add_feed", "paperrss_plan_rename_feed", "paperrss_plan_remove_feed", "paperrss_add_feed", "paperrss_rename_feed", "paperrss_remove_feed"].contains(tool) {
-            try registerApproval(response, sessionID: sessionID)
+            try await registerApproval(response, sessionID: sessionID)
+            guard defaults.bool(forKey: Self.enableKey), requestGeneration == generation,
+                  sessions[sessionID] === service else {
+                throw AgentFailure("NOT_ENABLED", "Local agent access was revoked during approval.")
+            }
+            if var preview = response.objectValue, let planID = preview["plan_id"] {
+                let status = try await service.call(tool: "paperrss_status", arguments: ["plan_id": planID])
+                preview["plan_state"] = status["plan_state"]
+                preview["receipt"] = status["receipt"]
+                preview["approval"] = status["plan_state"]
+                preview["approval_mode"] = .string(approvalMode.rawValue)
+                response = .object(preview)
+            }
         }
         if tool == "paperrss_status", var status = response.objectValue {
+            let mode = approvalMode
+            status["approval_mode"] = .string(mode.rawValue)
             status["app"] = Self.appInfo()
             status["accounts"] = .array(try (accountSnapshotProvider?() ?? []).map { account in
                 guard var fields = account.objectValue, fields["enabled"]?.boolValue == true else { return account }
                 var capabilities = fields["capabilities"]?.arrayValue ?? []
-                capabilities.append(.string("state.write.approval"))
-                if feedWriteAction != nil { capabilities.append(.string("feeds.manage.approval")) }
+                capabilities.append(.string(mode.stateCapability))
+                if feedWriteAction != nil { capabilities.append(.string(mode.feedCapability)) }
                 fields["capabilities"] = .array(capabilities)
                 return .object(fields)
             })
-            status["capabilities"] = .array((Self.capabilities(canOpen: opener != nil) + (feedWriteAction != nil ? ["feeds.manage.approval"] : [])).map(AgentJSON.string))
+            status["capabilities"] = .array((Self.capabilities(canOpen: opener != nil, mode: mode) + (feedWriteAction != nil ? [mode.feedCapability] : [])).map(AgentJSON.string))
             status["tools"] = .array(AgentToolCatalog.names.map(AgentJSON.string))
             status["transport"] = .string(sessionID == "app" ? "in_process" : "unix_socket")
             status["paired"] = .bool(sessionID != "app")
@@ -244,8 +274,8 @@ final class AgentBridgeController: AgentBridge {
                         "debug": .bool(debug)])
     }
 
-    private static func capabilities(canOpen: Bool) -> [String] {
-        ["metadata.read", "content.read.selection", "state.write.approval"] + (canOpen ? ["ui.open"] : [])
+    private static func capabilities(canOpen: Bool, mode: AgentMCPApprovalMode) -> [String] {
+        ["metadata.read", "content.read.selection", mode.stateCapability] + (canOpen ? ["ui.open"] : [])
     }
 
     static func accountSnapshots(database: LibraryDatabase, accounts: [AccountRecord]? = nil,
@@ -265,7 +295,7 @@ final class AgentBridgeController: AgentBridge {
         guard defaults.bool(forKey: Self.enableKey), let service = sessions[sessionID] else {
             throw AgentFailure("NOT_ENABLED", "Approval session is unavailable.")
         }
-        return try await service.approve(planID: planID)
+        return try await service.approveAndApply(planID: planID)
     }
 
     func denyStatePlan(planID: String, sessionID: String) async throws {
@@ -277,12 +307,17 @@ final class AgentBridgeController: AgentBridge {
         clientLabels[sessionID] = label
     }
 
-    private func registerApproval(_ plan: AgentJSON, sessionID: String) throws {
+    private func registerApproval(_ plan: AgentJSON, sessionID: String) async throws {
         guard let planID = plan["plan_id"]?.stringValue,
               let accountID = plan["account_id"]?.stringValue,
               let expiry = plan["expires_at"]?.stringValue,
               let expiresAt = ISO8601DateFormatter().date(from: expiry) else {
             throw AgentFailure("INTERNAL", "Invalid approval preview.")
+        }
+        if approvalMode.automaticallyApplies(actionKind: plan["action_kind"]?.stringValue ?? "") {
+            // Keep the plan discoverable via status even if its executor fails; approved plans can retry.
+            _ = try? await confirmStatePlan(planID: planID, sessionID: sessionID)
+            return
         }
         let account = try accountSnapshotProvider?().first { $0["account_id"]?.stringValue == accountID }
         let request = AgentApprovalCenter.Request(sessionID: sessionID, planID: planID,

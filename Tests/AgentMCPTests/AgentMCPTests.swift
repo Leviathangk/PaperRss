@@ -41,7 +41,7 @@ final class AgentMCPTests: XCTestCase {
             XCTAssertTrue(text.contains("paperrss_"))
             XCTAssertTrue(text.contains("untrusted"))
             if name == "mark_feed_read" {
-                for required in ["Approve in PaperRss", "paperrss_plan_mark_read", "paperrss_status", "paperrss_apply_plan", "approval_id"] { XCTAssertTrue(text.contains(required)) }
+                for required in ["Approve in PaperRss", "paperrss_plan_mark_read", "paperrss_status", "paperrss_apply_plan", "approval_id", "App applies immediately", "optional recovery", "approval_mode", "committed and receipt"] { XCTAssertTrue(text.contains(required)) }
             }
         }
         let count = await bridge.callCount

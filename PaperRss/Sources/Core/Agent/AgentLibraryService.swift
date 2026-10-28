@@ -105,6 +105,21 @@ public actor AgentLibraryService: AgentBridge {
         return approval
     }
 
+    /// Trusted App policy/UI entry point; uses the same executor and receipt path as MCP retries.
+    @discardableResult
+    public func approveAndApply(planID: String) async throws -> String {
+        try requireEnabled()
+        let approval: String
+        if let plan = plans[planID], plan.receipt != nil, let existing = plan.approval {
+            approval = existing
+        } else {
+            approval = try approve(planID: planID)
+        }
+        _ = try await apply(["plan_id": .string(planID), "approval_id": .string(approval),
+                             "idempotency_key": .string("app-approve-\(planID)")])
+        return approval
+    }
+
     /// Trusted App UI only. There is deliberately no IPC tool for approval or denial.
     public func deny(planID: String) throws {
         try requireEnabled()
@@ -150,12 +165,12 @@ public actor AgentLibraryService: AgentBridge {
 
     private func status(_ a: [String: AgentJSON]) throws -> AgentJSON {
         guard policy.enabled else {
-            return .object(["version": .string("agent-spike-1"), "enabled": .bool(false),
+            return .object(["approval_mode": .string("ask"), "version": .string("agent-spike-1"), "enabled": .bool(false),
                             "paired": .bool(false), "pair_state": .string("disabled"),
                             "transport": .string("none"), "accounts": .array([]), "pending_approvals": .number(0)])
         }
         var data: [String: AgentJSON] = [
-            "version": .string("agent-spike-1"), "enabled": .bool(true), "paired": .bool(false),
+            "approval_mode": .string("ask"), "version": .string("agent-spike-1"), "enabled": .bool(true), "paired": .bool(false),
             "pair_state": .string("app_internal"),
             "transport": .string("in_process_spike"),
             "accounts": .array(policy.accountIDs.sorted().map { .object([
@@ -451,7 +466,7 @@ public actor AgentLibraryService: AgentBridge {
             field: field, value: value, expires_at: clock().addingTimeInterval(900),
             retention_notice: "Marking read or removing a star may make articles eligible for retention cleanup. Changes to synced accounts are queued for sync. No undo is provided.",
             action_kind: kind, summary: summary, summary_en: summaryEnglish, affected_count: ids.count, sample_titles: titles,
-            approval: "pending", next_step: "Ask the user to approve in the PaperRss window, then call paperrss_status with plan_id, then paperrss_apply_plan.")
+            approval: "pending", next_step: "PaperRss applies according to approval_mode. If pending, ask the user to approve in PaperRss; App applies immediately. Poll paperrss_status with plan_id for committed and receipt, or denied/expired. Only retry paperrss_apply_plan if status stays approved without receipt; never invent approval_id.")
         plans[dto.plan_id] = PendingPlan(dto: dto, before: before)
         return try .encoding(dto)
     }
@@ -528,7 +543,7 @@ public actor AgentLibraryService: AgentBridge {
         var dto = AgentStatePlan(plan_id: UUID().uuidString, account_id: account, article_ids: [], field: .read, value: false,
             expires_at: clock().addingTimeInterval(900), retention_notice: kind == "remove_feed" ? "Permanently deletes feed history including starred articles. No undo." : "Changes the subscription in the selected account.",
             action_kind: kind, summary: summary, summary_en: english, affected_count: count, sample_titles: [], approval: "pending",
-            next_step: "Ask the user to approve in PaperRss, poll paperrss_status with plan_id, then paperrss_apply_plan.")
+            next_step: "PaperRss applies according to approval_mode. If pending, ask the user to approve in PaperRss; App applies immediately. Poll paperrss_status with plan_id for committed and receipt, or denied/expired. Only retry paperrss_apply_plan if status stays approved without receipt; never invent approval_id.")
         dto.destructive_hint = kind == "remove_feed"
         plans[dto.plan_id] = PendingPlan(dto: dto, before: [:], mutation: mutation)
         return try .encoding(dto)
@@ -600,11 +615,16 @@ public actor AgentLibraryService: AgentBridge {
             try authorize(plan.dto.account_id, write: true)
             return try .encoding(replay.receipt)
         }
-        guard var pending = plans[id], pending.dto.expires_at > clock() else { throw AgentFailure("CONFLICT", "Plan is unknown or expired.") }
+        guard var pending = plans[id] else { throw AgentFailure("CONFLICT", "Plan is unknown.") }
         try authorize(pending.dto.account_id, write: true)
         guard !pending.denied else { throw AgentFailure("DENIED", "Plan was denied.") }
         guard pending.approval == approval else { throw AgentFailure("CONFIRMATION_REQUIRED", "Approve this exact plan in PaperRss first.") }
-        guard pending.receipt == nil else { throw AgentFailure("CONFLICT", "Plan already committed; retry with the original idempotency key.") }
+        if let receipt = pending.receipt {
+            guard receipts.count < 256 else { throw AgentFailure("RATE_LIMITED", "Session receipt capacity reached.") }
+            receipts[key] = Replay(plan: id, approval: approval, receipt: receipt)
+            return try .encoding(receipt)
+        }
+        guard pending.dto.expires_at > clock() else { throw AgentFailure("CONFLICT", "Plan expired.") }
         guard receipts.count < 256 else { throw AgentFailure("RATE_LIMITED", "Session receipt capacity reached.") }
         try Task.checkCancellation()
         let dto = pending.dto

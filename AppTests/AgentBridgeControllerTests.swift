@@ -75,6 +75,8 @@ private extension AccountType {
 /// Uses volatile defaults and repository-local fixtures; never reads the production library.
 private final class AgentVolatileDefaults: UserDefaults, @unchecked Sendable {
     private var enabled = true
+    var mode: String?
+    override func string(forKey defaultName: String) -> String? { mode }
     override func bool(forKey defaultName: String) -> Bool { enabled }
     override func set(_ value: Bool, forKey defaultName: String) { enabled = value }
 }
@@ -103,8 +105,9 @@ extension AgentBridgeControllerTests {
         } catch let error as AgentFailure { XCTAssertEqual(error.code, "CONFLICT") }
         await center.approve(try XCTUnwrap(center.pending.first))
         let status = try await bridge.call(sessionID: "socket-a", tool: "paperrss_status", arguments: ["plan_id": .string(planID)])
-        XCTAssertEqual(status["plan_state"], .string("approved"))
-        XCTAssertNotNil(status["approval_id"]?.stringValue)
+        XCTAssertEqual(status["plan_state"], .string("committed"))
+        XCTAssertNotNil(status["receipt"])
+        XCTAssertEqual(status["approval_mode"], .string("ask"))
         XCTAssertTrue(center.pending.isEmpty)
         _ = try await bridge.call(sessionID: "socket-a", tool: "paperrss_plan_mark_read", arguments: arguments)
         _ = try await bridge.call(sessionID: "socket-b", tool: "paperrss_plan_mark_read", arguments: arguments)
@@ -154,10 +157,132 @@ extension AgentBridgeControllerTests {
             } catch let failure as AgentFailure { XCTAssertEqual(failure.code, "CONFIRMATION_REQUIRED") }
             await center.approve(request)
             let approved = try await bridge.call(tool: "paperrss_status", arguments: ["plan_id": .string(id)])
-            let approval = try XCTUnwrap(approved["approval_id"]?.stringValue)
-            _ = try await bridge.call(tool: "paperrss_apply_plan", arguments: ["plan_id": .string(id), "approval_id": .string(approval), "idempotency_key": .string("apply-\(index)")])
+            XCTAssertEqual(approved["plan_state"], .string("committed"))
+            XCTAssertNotNil(approved["receipt"])
+            let approval = try await bridge.confirmStatePlan(planID: id, sessionID: "app")
+            let replay = try await bridge.call(tool: "paperrss_apply_plan", arguments: ["plan_id": .string(id), "approval_id": .string(approval), "idempotency_key": .string("retry-\(index)")])
+            XCTAssertEqual(replay, approved["receipt"])
             XCTAssertEqual(executed.count, index + 1)
         }
+        await bridge.stop()
+    }
+}
+
+extension AgentBridgeControllerTests {
+    func testApprovalModesEvaluateAtRegistrationAndReportCapabilities() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agent-modes-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let database = try LibraryDatabase(databaseURL: directory.appendingPathComponent("library.sqlite"))
+        let provider = LocalAccountProvider(database: database)
+        try provider.ensureAccountExists()
+        let feed = try provider.addFeed(title: "Synthetic", feedURL: URL(string: "https://example.org/feed")!)
+        try database.write { db in
+            try ItemRecord(id: "fixture", accountID: "local-default", externalID: "fixture",
+                           feedID: feed.id.uuidString, createdAt: 1, updatedAt: 1).insert(db)
+            try ArticleRecord(itemID: "fixture", title: "Synthetic", contentHTML: "").insert(db)
+            try ArticleStateRecord(itemID: "fixture", isRead: false, isStarred: false, dateArrived: 1, updatedAt: 1).insert(db)
+        }
+        let defaults = AgentVolatileDefaults()
+        let center = AgentApprovalCenter(showPanel: false)
+        let bridge = AgentBridgeController(defaults: defaults, approvalCenter: center)
+        bridge.attachForTesting(database: database)
+        _ = try await bridge.confirmContentSelection(articleIDs: ["fixture"])
+        for mode in ["ask", "auto", "full", "invalid"] {
+            defaults.mode = mode
+            for tool in ["paperrss_plan_mark_read", "paperrss_plan_state_change"] {
+                let arguments: [String: AgentJSON] = tool == "paperrss_plan_mark_read"
+                    ? ["account_id": .string("local-default"), "scope": .string("account")]
+                    : ["account_id": .string("local-default"), "article_ids": .array([.string("fixture")]),
+                       "field": .string("starred"), "value": .bool(true)]
+                let plan = try await bridge.call(tool: tool, arguments: arguments)
+                let status = try await bridge.call(tool: "paperrss_status", arguments: ["plan_id": plan["plan_id"]!])
+                let automatic = mode == "auto" || mode == "full"
+                XCTAssertEqual(status["plan_state"], .string(automatic ? "committed" : "pending"))
+                XCTAssertEqual(status["receipt"] != nil, automatic)
+                XCTAssertEqual(center.pending.isEmpty, automatic)
+                XCTAssertEqual(status["approval_mode"], .string(mode == "invalid" ? "ask" : mode))
+                let caps = try XCTUnwrap(status["capabilities"]?.arrayValue)
+                XCTAssertTrue(caps.contains(.string(mode == "full" ? "state.write" : "state.write.approval")))
+                if let request = center.pending.first { await center.deny(request) }
+            }
+        }
+        XCTAssertTrue(try database.read { try XCTUnwrap(provider.stateRepository.fetchState(itemID: "fixture", in: $0)).isRead })
+        await bridge.stop()
+    }
+
+    func testAutoAsksForEveryFeedMutationAndFullAppliesWithoutPanel() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agent-feed-modes-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let database = try LibraryDatabase(databaseURL: directory.appendingPathComponent("library.sqlite"))
+        let provider = LocalAccountProvider(database: database)
+        try provider.ensureAccountExists()
+        let feed = try provider.addFeed(title: "Synthetic", feedURL: URL(string: "https://example.org/feed")!)
+        let defaults = AgentVolatileDefaults()
+        let center = AgentApprovalCenter(showPanel: false)
+        let bridge = AgentBridgeController(defaults: defaults, approvalCenter: center)
+        var executed = 0
+        bridge.attachForTesting(database: database, feedExecutor: { mutation, _ in
+            executed += 1
+            return AgentFeedWriteResult(feedID: mutation.feedID ?? "created", title: "Synthetic", sync: "local_only")
+        })
+        for mode in ["auto", "full"] {
+            defaults.mode = mode
+            for kind in ["add_feed", "rename_feed", "remove_feed"] {
+                var args: [String: AgentJSON] = ["account_id": .string("local-default")]
+                if kind == "add_feed" { args["url"] = .string("https://example.org/new") }
+                else { args["feed_id"] = .string(feed.id.uuidString) }
+                if kind == "rename_feed" { args["title"] = .string("Renamed") }
+                let plan = try await bridge.call(tool: "paperrss_plan_\(kind)", arguments: args)
+                let status = try await bridge.call(tool: "paperrss_status", arguments: ["plan_id": plan["plan_id"]!])
+                XCTAssertEqual(status["plan_state"], .string(mode == "full" ? "committed" : "pending"))
+                XCTAssertEqual(status["receipt"] != nil, mode == "full")
+                XCTAssertEqual(center.pending.isEmpty, mode == "full")
+                XCTAssertTrue(status["capabilities"]?.arrayValue?.contains(.string(mode == "full" ? "feeds.manage" : "feeds.manage.approval")) == true)
+                if mode == "auto" {
+                    XCTAssertEqual(executed, 0)
+                    await center.deny(try XCTUnwrap(center.pending.first))
+                    let denied = try await bridge.call(tool: "paperrss_status", arguments: ["plan_id": plan["plan_id"]!])
+                    XCTAssertEqual(denied["plan_state"], .string("denied"))
+                }
+            }
+        }
+        XCTAssertEqual(executed, 3)
+        await bridge.stop()
+    }
+}
+
+extension AgentBridgeControllerTests {
+    func testFailedAppApplyRetainsApprovalForRetry() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agent-retry-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let database = try LibraryDatabase(databaseURL: directory.appendingPathComponent("library.sqlite"))
+        let provider = LocalAccountProvider(database: database)
+        try provider.ensureAccountExists()
+        let feed = try provider.addFeed(title: "Synthetic", feedURL: URL(string: "https://example.org/feed")!)
+        let center = AgentApprovalCenter(showPanel: false)
+        let bridge = AgentBridgeController(defaults: AgentVolatileDefaults(), approvalCenter: center)
+        var attempts = 0
+        bridge.attachForTesting(database: database, feedExecutor: { mutation, _ in
+            attempts += 1
+            if attempts == 1 { throw AgentFailure("CONFLICT", "Synthetic transient failure") }
+            return AgentFeedWriteResult(feedID: mutation.feedID!, title: "Synthetic", sync: "local_only")
+        })
+        let plan = try await bridge.call(tool: "paperrss_plan_remove_feed",
+            arguments: ["account_id": .string("local-default"), "feed_id": .string(feed.id.uuidString)])
+        let request = try XCTUnwrap(center.pending.first)
+        await center.approve(request)
+        XCTAssertTrue(center.failed.contains(request.id))
+        let approved = try await bridge.call(tool: "paperrss_status", arguments: ["plan_id": plan["plan_id"]!])
+        XCTAssertEqual(approved["plan_state"], .string("approved"))
+        XCTAssertNil(approved["receipt"])
+        let receipt = try await bridge.call(tool: "paperrss_apply_plan", arguments: [
+            "plan_id": plan["plan_id"]!, "approval_id": try XCTUnwrap(approved["approval_id"]),
+            "idempotency_key": .string("optional-recovery")])
+        await center.approve(request)
+        XCTAssertTrue(center.pending.isEmpty)
+        XCTAssertEqual(attempts, 2)
+        let committed = try await bridge.call(tool: "paperrss_status", arguments: ["plan_id": plan["plan_id"]!])
+        XCTAssertEqual(committed["receipt"], receipt)
         await bridge.stop()
     }
 }

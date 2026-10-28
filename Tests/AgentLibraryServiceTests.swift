@@ -792,3 +792,27 @@ final class AgentLibraryServiceTests: XCTestCase {
         XCTAssertEqual(try fixture.provider.fetchFeeds().count, 1)
     }
 }
+
+extension AgentLibraryServiceTests {
+    func testAppApproveAppliesAndReplaysReceiptWithoutClientApply() async throws {
+        let fixture = try Fixture()
+        defer { try? fixture.remove() }
+        let service = fixture.service()
+        let id = try await makePlan(service)
+        let approval = try await service.approveAndApply(planID: id)
+        XCTAssertTrue(try fixture.state("a").isRead)
+        let status = try await service.call(tool: "paperrss_status", arguments: ["plan_id": .string(id)])
+        XCTAssertEqual(status["plan_state"], .string("committed"))
+        XCTAssertNotNil(status["receipt"])
+        let repeated = try await service.approveAndApply(planID: id)
+        XCTAssertEqual(repeated, approval)
+        let replay = try await service.call(tool: "paperrss_apply_plan", arguments: applyArguments(plan: id, approval: approval, key: "client-retry"))
+        XCTAssertEqual(replay, status["receipt"])
+        await expectFailure("CONFLICT") {
+            _ = try await service.call(tool: "paperrss_apply_plan", arguments: applyArguments(plan: "another-plan", approval: approval, key: "client-retry"))
+        }
+        await expectFailure("CONFIRMATION_REQUIRED") {
+            _ = try await service.call(tool: "paperrss_apply_plan", arguments: applyArguments(plan: id, approval: "forged", key: "forged"))
+        }
+    }
+}
