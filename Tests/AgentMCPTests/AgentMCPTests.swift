@@ -21,6 +21,37 @@ final class AgentMCPTests: XCTestCase {
         request("tools/call", id: id, params: ["name": .string(name), "arguments": .object(arguments)])
     }
 
+    func testToolsListPaginationParameters() async throws {
+        let server = AgentMCPServer(bridge: AgentUnavailableBridge())
+        await initialize(server)
+        let baseline = await server.handle(request("tools/list"))
+        let tools = try XCTUnwrap(baseline?["result"]?["tools"])
+        for params: [String: AgentJSON] in [
+            ["cursor": .null], ["cursor": .string("x")],
+            ["_meta": .object(["progressToken": .number(1)])]
+        ] {
+            let reply = await server.handle(request("tools/list", params: params))
+            XCTAssertEqual(reply?["result"]?["tools"], tools)
+            XCTAssertNil(reply?["result"]?["nextCursor"])
+        }
+        for params: [String: AgentJSON] in [
+            ["bogus": .number(1)], ["cursor": .number(5)], ["_meta": .null]
+        ] {
+            let reply = await server.handle(request("tools/list", params: params))
+            XCTAssertEqual(reply?["error"]?["code"], .number(-32602))
+            XCTAssertEqual(reply?["error"]?["message"], .string("Invalid tools/list parameters."))
+        }
+    }
+
+    func testInitializeEchoes20250326() async {
+        let server = AgentMCPServer(bridge: AgentUnavailableBridge())
+        let reply = await server.handle(request("initialize", params: [
+            "protocolVersion": .string("2025-03-26"), "capabilities": .object([:]),
+            "clientInfo": .object(["name": .string("tests"), "version": .string("1")])
+        ]))
+        XCTAssertEqual(reply?["result"]?["protocolVersion"], .string("2025-03-26"))
+    }
+
     func testRegistrationHasTenStrictToolsAndSecurityAnnotations() async throws {
         let server = AgentMCPServer(bridge: AgentUnavailableBridge())
         await initialize(server)

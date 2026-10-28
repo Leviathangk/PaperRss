@@ -59,7 +59,7 @@ public actor AgentMCPServer {
             }
             initialized = true
             let requested = params["protocolVersion"]!.stringValue!
-            let supported = ["2025-11-25", "2025-06-18", "2024-11-05"]
+            let supported = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"]
             let version = supported.contains(requested) ? requested : supported[0]
             return result(id: id, .object([
                 "protocolVersion": .string(version),
@@ -72,7 +72,11 @@ public actor AgentMCPServer {
         guard initialized else { return rpcError(id: id, code: -32002, message: "Initialize first.") }
         switch method {
         case "tools/list":
-            guard params.isEmpty else { return rpcError(id: id, code: -32602, message: "tools/list takes no parameters in this version.") }
+            guard Set(params.keys).isSubset(of: ["cursor", "_meta"]),
+                  params["cursor"] == nil || params["cursor"] == .null || params["cursor"]?.stringValue != nil,
+                  params["_meta"] == nil || params["_meta"]?.objectValue != nil else {
+                return rpcError(id: id, code: -32602, message: "Invalid tools/list parameters.")
+            }
             return result(id: id, .object(["tools": .array(AgentMCPTools.definitions)]))
         case "tools/call":
             guard let name = params["name"]?.stringValue,
