@@ -248,6 +248,9 @@ struct SettingsView: View {
     @State private var addFreshRSSSuccess: String?
     #if os(macOS)
     @AppStorage(AgentBridgeController.enableKey) private var agentMCPEnabled = false
+    @State private var agentMCPInstallCopied: String?
+    @State private var agentMCPInstallError: String?
+    @State private var agentMCPInstallCopyTask: Task<Void, Never>?
     @State private var agentMCPCopied = false
     @State private var agentMCPCopyTask: Task<Void, Never>?
     #endif
@@ -2933,13 +2936,22 @@ struct SettingsView: View {
                 "Allow local Cursor, Codex, or Claude clients to read local subscriptions and article metadata via MCP. Off by default."
             )
         ) {
-            settingsRow(I18N.shared.localized("连接外部助手", "Connect External Assistants")) {
+            settingsRow(I18N.shared.localized("连接外部助手", "Connect External Assistants"), description: I18N.shared.localized("客户端连接时必须开启。", "This must be on for clients to connect.")) {
                 Toggle(I18N.shared.localized("连接外部助手", "Connect External Assistants"), isOn: $agentMCPEnabled)
                     .labelsHidden()
                     .accessibilityIdentifier("settings.agentMCPEnabled")
             }
             Divider().padding(.horizontal, 18).opacity(0.18)
-            settingsRow(I18N.shared.localized("MCP 配置", "MCP Configuration")) {
+            settingsSubsectionTitle(I18N.shared.localized("一键接入", "Quick Install"))
+            ForEach(AgentMCPInstallTarget.allCases) { target in
+                agentMCPInstallRow(target)
+                Divider().padding(.horizontal, 18).opacity(0.18)
+            }
+            if let error = agentMCPInstallError {
+                Text(error).font(.system(size: 13)).foregroundStyle(.red)
+                    .padding(.horizontal, 18).padding(.vertical, 8)
+            }
+            settingsRow(I18N.shared.localized("其他助手", "Other Agents")) {
                 Button(agentMCPCopied
                     ? I18N.shared.localized("已复制", "Copied")
                     : I18N.shared.localized("复制 MCP 配置与提示词", "Copy MCP Configuration and Prompt")) {
@@ -2957,6 +2969,60 @@ struct SettingsView: View {
                 .accessibilityIdentifier("settings.copyAgentMCPConfiguration")
             }
         }
+    }
+    private func agentMCPInstallRow(_ target: AgentMCPInstallTarget) -> some View {
+        let path = AgentMCPConnectCopy.helperPath()
+        let url = path.flatMap { target.url(path: $0) }
+        let missingHandler = target.kind == .deeplink && url.map { NSWorkspace.shared.urlForApplication(toOpen: $0) == nil } == true
+        let hint: String
+        if path == nil {
+            hint = AgentMCPConnectCopy.debugBuild
+                ? I18N.shared.localized("辅助程序缺失，请在仓库运行 swift build --product paperrss-agent。", "Helper missing. Run swift build --product paperrss-agent in the repository.")
+                : I18N.shared.localized("辅助程序缺失，请重新安装 PaperRss。", "Helper missing. Reinstall PaperRss.")
+        } else if missingHandler {
+            hint = I18N.shared.isEnglish ? "\(target.name) not installed" : "未检测到 \(target.name)"
+        } else {
+            switch target.kind {
+            case .deeplink: hint = I18N.shared.localized("打开客户端安装", "Open the client to install")
+            case .command: hint = I18N.shared.localized("复制后在终端运行", "Copy and run in Terminal")
+            case .jsonSnippet: hint = target.configNote(english: I18N.shared.isEnglish) ?? ""
+            }
+        }
+        let buttonTitle: String
+        if agentMCPInstallCopied == target.id {
+            buttonTitle = I18N.shared.localized("已复制", "Copied")
+        } else {
+            switch target.kind {
+            case .deeplink: buttonTitle = I18N.shared.isEnglish ? "Install in \(target.name)" : "在 \(target.name) 中安装"
+            case .command: buttonTitle = I18N.shared.localized("复制命令", "Copy Command")
+            case .jsonSnippet: buttonTitle = I18N.shared.localized("复制 JSON", "Copy JSON")
+            }
+        }
+        return settingsRow(target.name, description: hint) {
+            Button(buttonTitle) {
+                guard let path else { return }
+                agentMCPInstallError = nil
+                if target.kind == .deeplink {
+                    guard let url, NSWorkspace.shared.open(url) else {
+                        agentMCPInstallError = I18N.shared.isEnglish ? "Could not open \(target.name)." : "无法打开 \(target.name)。"
+                        return
+                    }
+                } else if let text = target.command(path: path) ?? target.snippet(path: path) {
+                    NSPasteboard.general.clearContents()
+                    guard NSPasteboard.general.setString(text, forType: .string) else { return }
+                    agentMCPInstallCopied = target.id
+                    agentMCPInstallCopyTask?.cancel()
+                    agentMCPInstallCopyTask = Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(2))
+                        guard !Task.isCancelled else { return }
+                        agentMCPInstallCopied = nil
+                    }
+                }
+            }
+            .disabled(path == nil || missingHandler || (target.kind == .deeplink && url == nil))
+            .accessibilityIdentifier("settings.agentMCPInstall.\(target.id)")
+        }
+        .accessibilityIdentifier("settings.agentMCPRow.\(target.id)")
     }
     #endif
 

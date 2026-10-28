@@ -191,3 +191,9 @@ Codex `workspace-write` 沙箱曾禁止 Unix socket `bind`（当时完整相关�
 status DTO 已对齐：fixture / Core / App overlay 均提供 `paired` + `pair_state` + `transport`（fixture 另带 `fixture=true`；真实 UDS 连接 `transport=unix_socket`、`pair_state=local_user_token`）。
 
 Bro 硬要求（UDS-only 非 fixture、enable gate listen/revoke、0700/0600+peer UID+token、QA-only 受信授权、status 字段统一、研究 `??` 不提交）已并入本轮实现。
+
+## 常见客户端快速接入
+
+设置 → AI → MCP 提供 Cursor 安装链接；VS Code 和 VS Code Insiders 使用各自的 MCP 安装链接。Claude Code 与 Codex CLI 复制终端命令（Codex CLI、ChatGPT 桌面应用与 Codex IDE 扩展共享配置）。Claude Desktop、Windsurf / Devin Desktop 和 Gemini CLI 复制 JSON，按提示合并到各自配置并保留其他服务器。连接时需要开启「连接外部助手」并保持 PaperRss 运行。
+
+格式参考：[Cursor](https://cursor.com/docs/context/mcp/install-links)、[VS Code](https://code.visualstudio.com/api/extension-guides/ai/mcp)、[Claude Code](https://code.claude.com/docs/en/mcp)、[Codex](https://developers.openai.com/codex/mcp)、[Claude Desktop / MCP](https://modelcontextprotocol.io/docs/develop/connect-local-servers)、[Devin Desktop](https://docs.devin.ai/desktop/cascade/mcp)、[Gemini CLI](https://geminicli.com/docs/tools/mcp-server/)。
