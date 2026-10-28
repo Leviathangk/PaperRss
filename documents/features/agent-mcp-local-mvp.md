@@ -17,7 +17,7 @@
 
 ## 构建与启用
 
-在 macOS App 中打开 **设置 → 常规 → 外部助手 → 连接外部助手**，即可开启或关闭现有 MCP listener；默认关闭。同一区域的「复制 MCP 配置与提示词」提供 Cursor / Claude JSON 与 Codex TOML 片段。若未找到可执行 helper，复制内容会提示先构建并填写绝对路径。helper 尚未随 App 打包。
+在 macOS App 中打开 **设置 → AI → MCP → 连接外部助手**，即可开启或关闭现有 MCP listener；默认关闭。同一区域的「复制 MCP 配置与提示词」提供 Cursor / Claude JSON 与 Codex TOML 片段。原生 App 将签名的 helper 内嵌在 `PaperRss.app/Contents/MacOS/paperrss-agent`。移动 App 后需重新复制配置；Release 缺少 helper 时提示重新安装，Debug 则可使用开发构建路径并提示构建。
 
 以下均在本 worktree 执行。构建本身不启动 App：
 
@@ -58,7 +58,7 @@ defaults write com.yangbukun.PaperRss PaperRss.agentMCPEnabled -bool YES
 {
   "mcpServers": {
     "paperrss-local": {
-      "command": "/Users/yangbukun/.codex/worktrees/b9dd/PaperRss/.build/debug/paperrss-agent",
+      "command": "/Applications/PaperRss.app/Contents/MacOS/paperrss-agent",
       "args": ["serve", "--stdio", "--client", "oliver-qa"],
       "env": {"PAPERRSS_AGENT_ENABLED": "1"}
     }
@@ -70,7 +70,7 @@ Codex 本地 `config.toml` 示例：
 
 ```toml
 [mcp_servers.paperrss_local]
-command = "/Users/yangbukun/.codex/worktrees/b9dd/PaperRss/.build/debug/paperrss-agent"
+command = "/Applications/PaperRss.app/Contents/MacOS/paperrss-agent"
 args = ["serve", "--stdio", "--client", "oliver-qa"]
 
 [mcp_servers.paperrss_local.env]

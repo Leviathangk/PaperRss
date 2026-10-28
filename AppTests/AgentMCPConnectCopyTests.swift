@@ -26,8 +26,18 @@ final class AgentMCPConnectCopyTests: XCTestCase {
         XCTAssertTrue(result.contains("[mcp_servers.paperrss.env]"))
         XCTAssertFalse(result.contains("--fixture"))
         XCTAssertFalse(result.contains("swift build"))
+        XCTAssertTrue(result.contains("设置 → AI → MCP"))
+        XCTAssertTrue(result.contains("重新复制配置"))
         let missing = AgentMCPConnectCopy.text(path: nil, english: true)
         XCTAssertTrue(missing.contains(AgentMCPConnectCopy.placeholder))
         XCTAssertTrue(missing.contains("swift build --product paperrss-agent"))
+        for english in [false, true] {
+            let release = AgentMCPConnectCopy.text(path: nil, english: english, isDebug: false)
+            XCTAssertTrue(release.contains(english ? "Please reinstall PaperRss" : "请重新安装 PaperRss"))
+            XCTAssertFalse(release.contains("swift build"))
+        }
+        let english = AgentMCPConnectCopy.text(path: path, english: true)
+        XCTAssertTrue(english.contains("Settings → AI → MCP"))
+        XCTAssertTrue(english.contains("copy the configuration again"))
     }
 }

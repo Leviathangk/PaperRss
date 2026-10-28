@@ -1,6 +1,6 @@
 # PaperRss 本地 MCP 一键接入（粘贴给 Codex / Cursor Agent）
 
-设置 → 常规 → 外部助手现已提供开关和「复制 MCP 配置与提示词」；下方长 prompt 作为备用。
+设置 → AI → MCP 现已提供开关和「复制 MCP 配置与提示词」；App 内嵌的 helper 位于 `PaperRss.app/Contents/MacOS/paperrss-agent`；移动 App 后需重新复制配置。下方长 prompt 是面向源码开发的备用流程。
 
 把下面「PROMPT」整段复制给 Codex / Cursor Agent / Claude Code。它会：找到本机 PaperRss 工程 → 编译 helper → 开闸启动 App → 写入 Cursor / Claude / Codex 的 MCP 配置。
 

@@ -60,12 +60,18 @@ private enum SettingsMetrics {
 private enum AISettingsPane: String, CaseIterable, Identifiable {
     case features
     case providers
+    #if os(macOS)
+    case mcp
+    #endif
     var id: Self { self }
 
     @MainActor var title: String {
         switch self {
         case .features: I18N.shared.localized("功能配置", "Feature Routing")
         case .providers: I18N.shared.localized("供应商与模型", "Providers & Models")
+        #if os(macOS)
+        case .mcp: I18N.shared.localized("MCP", "MCP")
+        #endif
         }
     }
 }
@@ -1434,7 +1440,7 @@ struct SettingsView: View {
                         .padding(.horizontal, 18)
                         .padding(.vertical, 14)
                 }
-            } else {
+            } else if selectedAISettingsPane == .providers {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(I18N.shared.localized("供应商与模型", "Providers & Models"))
                         .font(.system(size: 27, weight: .bold))
@@ -1450,6 +1456,10 @@ struct SettingsView: View {
                 Divider().opacity(0.35)
 
                 providerPickerAndEditor
+            } else {
+                #if os(macOS)
+                agentMCPSettings
+                #endif
             }
         }
     }
@@ -2910,9 +2920,6 @@ struct SettingsView: View {
             Text(I18N.shared.localized("常规", "General"))
                 .font(.system(size: 26, weight: .bold))
             languageSettings
-            #if os(macOS)
-            agentMCPSettings
-            #endif
             refreshSettings
         }
     }
