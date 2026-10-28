@@ -81,9 +81,10 @@ enum AgentMCPInstallTarget: String, CaseIterable, Identifiable {
         case .dsh:
             // YAML and POSIX shell quoting are separate layers; never interpolate the path as shell code.
             let yamlPath = "'" + path.replacingOccurrences(of: "'", with: "''") + "'"
-            let lines = ["", "- id: mcp-paperrss", "  name: '@deepseek-ai/dsh-mcp-client'", "  config:",
-                         "    serverName: paperrss", "    transport: stdio", "    command: \(yamlPath)",
-                         "    args: [serve, --stdio, --client, dsh]", "    env:", "      PAPERRSS_AGENT_ENABLED: '1'"]
+            // Patch layers only override existing ids; new entries must be wrapped in a top-level `insert:` patch.
+            let lines = ["", "- insert:", "    - id: mcp-paperrss", "      name: '@deepseek-ai/dsh-mcp-client'", "      config:",
+                         "        serverName: paperrss", "        transport: stdio", "        command: \(yamlPath)",
+                         "        args: [serve, --stdio, --client, dsh]", "        env:", "          PAPERRSS_AGENT_ENABLED: '1'"]
             let payload = lines.map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }.joined(separator: " ")
             // Empty flow arrays cannot be followed by block-array entries. Ignore comments when checking emptiness.
             return #"f="${DSH_HOME:-$HOME/.dsh}/cordis.patch.yml"; mkdir -p "$(dirname "$f")" && if ! grep -Eq '^[[:space:]]*(-[[:space:]]*)?id:[[:space:]]*mcp-paperrss([[:space:]]*(#.*)?)?$' "$f" 2>/dev/null; then if [ ! -e "$f" ] || awk '{sub(/#.*/, ""); gsub(/[[:space:]]/, ""); s=s $0} END {exit !(s == "" || s == "[]")}' "$f"; then : > "$f"; fi && printf '%s\n' "# + payload + #" >> "$f"; fi"#

@@ -79,3 +79,19 @@ final class AgentApprovalCenterTests: XCTestCase {
         XCTAssertTrue(center.failed.isEmpty)
     }
 }
+
+extension AgentApprovalCenterTests {
+    func testRemovalRequestHasExplicitDestructiveWarning() {
+        let request = AgentApprovalCenter.Request(sessionID: "fixture", planID: "remove", clientLabel: nil,
+            actionKind: "remove_feed", accountName: "Synthetic", accountType: "local",
+            summary: "Remove synthetic feed", affectedCount: 3, sampleTitles: [], notice: "",
+            expiresAt: Date().addingTimeInterval(60))
+        XCTAssertTrue(request.isDestructive)
+        XCTAssertTrue(request.isFeedManagement)
+        XCTAssertFalse(request.warning.isEmpty)
+        let center = AgentApprovalCenter(showPanel: false)
+        center.register(request, approve: { XCTFail("No user click") }, deny: {})
+        XCTAssertTrue(center.pending.first?.isDestructive == true)
+        center.removeAll()
+    }
+}

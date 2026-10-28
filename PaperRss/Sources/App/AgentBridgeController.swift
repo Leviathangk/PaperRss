@@ -21,6 +21,7 @@ final class AgentBridgeController: AgentBridge {
     let approvalCenter: AgentApprovalCenter
     private var clientLabels: [String: String] = [:]
     private var writeAction: (@MainActor @Sendable (String, [String], AgentStateField, Bool, Date) throws -> AgentWriteResult)?
+    private var feedWriteAction: (@MainActor @Sendable (AgentFeedMutation, Date) async throws -> AgentFeedWriteResult)?
     private var sessions: [String: AgentLibraryService] = [:]
     private var generation = UUID()
     private var qaArticleIDs: [String] = []
@@ -61,6 +62,10 @@ final class AgentBridgeController: AgentBridge {
         writeAction = { [weak store] account, ids, field, value, expiresAt in
             guard let store else { throw AgentFailure("APP_NOT_RUNNING", "PaperRss is not ready.") }
             return try store.applyAgentStateChange(accountID: account, articleIDs: ids, field: field, value: value, expiresAt: expiresAt)
+        }
+        feedWriteAction = { [weak store] mutation, expiresAt in
+            guard let store else { throw AgentFailure("APP_NOT_RUNNING", "PaperRss is not ready.") }
+            return try await store.applyAgentFeedMutation(mutation, expiresAt: expiresAt)
         }
         Task { [weak self, store] in
             do { try await self?.attach(database: store.libraryDatabase, accountID: store.localProvider.accountID,
@@ -119,8 +124,13 @@ final class AgentBridgeController: AgentBridge {
 
     #if DEBUG
     /// Isolated fixtures only; never reached by IPC or launch arguments.
-    func attachForTesting(database: LibraryDatabase) {
+    func attachForTesting(database: LibraryDatabase,
+                          feedExecutor: (@MainActor @Sendable (AgentFeedMutation, Date) async throws -> AgentFeedWriteResult)? = nil) {
         self.database = database
+        if let feedExecutor {
+            feedWriteAction = feedExecutor
+            writeAction = { _, _, _, _, _ in throw AgentFailure("UNSUPPORTED", "State writes unavailable in this fixture.") }
+        }
         accountSnapshotProvider = { try Self.accountSnapshots(database: database) }
     }
     #endif
@@ -151,13 +161,19 @@ final class AgentBridgeController: AgentBridge {
         let sessionGeneration = generation
         let created = AgentLibraryService(database: database, accountID: accountID,
             policy: AgentAccessPolicy(enabled: true, accountIDs: accountIDs, allowStarred: true, allowStateChanges: true),
-            writeExecutor: writeAction.map { action in AppAgentWriteExecutor { [weak self] account, ids, field, value, expiresAt in
+            writeExecutor: writeAction.map { action in AppAgentWriteExecutor(action: { [weak self] account, ids, field, value, expiresAt in
                 guard let self, self.generation == sessionGeneration, self.sessions[id] != nil,
                       self.defaults.bool(forKey: Self.enableKey) else {
                     throw AgentFailure("NOT_ENABLED", "Local agent access was revoked.")
                 }
                 return try action(account, ids, field, value, expiresAt)
-            } },
+            }, feedAction: { [weak self] mutation, expiresAt in
+                guard let self, self.generation == sessionGeneration, self.sessions[id] != nil,
+                      self.defaults.bool(forKey: Self.enableKey), let action = self.feedWriteAction else {
+                    throw AgentFailure("NOT_ENABLED", "Feed management access was revoked.")
+                }
+                return try await action(mutation, expiresAt)
+            }) },
             opener: { [weak self] request in
                 guard let self, self.generation == sessionGeneration, self.sessions[id] != nil,
                       self.defaults.bool(forKey: Self.enableKey), let opener = self.opener else {
@@ -194,7 +210,7 @@ final class AgentBridgeController: AgentBridge {
               sessions[sessionID] === service else {
             throw AgentFailure("NOT_ENABLED", "Local agent access was revoked during the request.")
         }
-        if ["paperrss_plan_state_change", "paperrss_plan_mark_read"].contains(tool) {
+        if ["paperrss_plan_state_change", "paperrss_plan_mark_read", "paperrss_plan_add_feed", "paperrss_plan_rename_feed", "paperrss_plan_remove_feed", "paperrss_add_feed", "paperrss_rename_feed", "paperrss_remove_feed"].contains(tool) {
             try registerApproval(response, sessionID: sessionID)
         }
         if tool == "paperrss_status", var status = response.objectValue {
@@ -203,6 +219,7 @@ final class AgentBridgeController: AgentBridge {
                 guard var fields = account.objectValue, fields["enabled"]?.boolValue == true else { return account }
                 var capabilities = fields["capabilities"]?.arrayValue ?? []
                 capabilities.append(.string("state.write.approval"))
+                if feedWriteAction != nil { capabilities.append(.string("feeds.manage.approval")) }
                 fields["capabilities"] = .array(capabilities)
                 return .object(fields)
             })
@@ -323,6 +340,10 @@ final class AgentBridgeController: AgentBridge {
 /// App-owned executor. The closure runs on the main actor before touching AppStore.
 private struct AppAgentWriteExecutor: AgentWriteExecutor {
     let action: @MainActor @Sendable (String, [String], AgentStateField, Bool, Date) async throws -> AgentWriteResult
+    let feedAction: @MainActor @Sendable (AgentFeedMutation, Date) async throws -> AgentFeedWriteResult
+    func executeFeed(_ mutation: AgentFeedMutation, expiresAt: Date) async throws -> AgentFeedWriteResult {
+        try await feedAction(mutation, expiresAt)
+    }
     func execute(accountID: String, articleIDs: [String], field: AgentStateField, value: Bool, expiresAt: Date) async throws -> AgentWriteResult {
         try await action(accountID, articleIDs, field, value, expiresAt)
     }

@@ -1265,10 +1265,11 @@ public final class AppStore: ObservableObject {
             try await directProvider(for: accID).renameFeed(feedID: feed.id, newTitle: clean)
             await reloadStateAsync()
         } else {
-            if let provider = await syncCoordinator.provider(for: accID) {
-                try await provider.renameFeed(feedID: feed.id, newTitle: clean)
-                await reloadStateAsync()
+            guard let provider = await syncCoordinator.provider(for: accID) else {
+                throw AgentFailure("UNSUPPORTED", "The account provider is unavailable for renaming feeds.")
             }
+            try await provider.renameFeed(feedID: feed.id, newTitle: clean)
+            await reloadStateAsync()
         }
     }
 
@@ -1327,6 +1328,69 @@ public final class AppStore: ObservableObject {
             }
             scheduleMissingIconProbe(delay: 0.5)
             return addedFeed
+        }
+    }
+
+    /// Await the same account provider used by subscription UI before issuing an Agent receipt.
+    public func applyAgentFeedMutation(_ mutation: AgentFeedMutation, expiresAt: Date) async throws -> AgentFeedWriteResult {
+        func validate() throws -> Feed? {
+            try Task.checkCancellation()
+            guard expiresAt > Date() else { throw AgentFailure("CONFLICT", "Plan expired before execution.") }
+            return try libraryDatabase.read { db in
+                guard let account = try AccountRecord.fetchOne(db, key: mutation.accountID), account.isEnabled,
+                      AccountType(rawValue: account.type) != nil else {
+                    throw AgentFailure("NOT_FOUND", "Enabled account not found.")
+                }
+                if mutation.kind == "add_feed" {
+                    guard let raw = mutation.url, let url = URL(string: raw),
+                          ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+                          let host = url.host, !host.isEmpty, url.user == nil, url.password == nil else {
+                        throw AgentFailure("INVALID_ARGUMENT", "Feed URL must be HTTP(S) without credentials.")
+                    }
+                    let duplicate = try FeedRecord.filter(Column("account_id") == mutation.accountID && Column("feed_url") == url.absoluteString && Column("is_deleted") == false).fetchOne(db)
+                    guard duplicate == nil else { throw AgentFailure("CONFLICT", "Already subscribed in this account.") }
+                    return nil
+                }
+                guard let id = mutation.feedID,
+                      let record = try FeedRecord.fetchOne(db, key: id), record.accountID == mutation.accountID, !record.isDeleted,
+                      let feed = try localProvider.feedRepository.fetchFeedModel(id: id, in: db) else {
+                    throw AgentFailure("NOT_FOUND", "Feed not found in the allowed account.")
+                }
+                if [AccountType.freshRSS.rawValue, AccountType.miniflux.rawValue].contains(account.type),
+                   record.externalID?.isEmpty != false {
+                    throw AgentFailure("UNSUPPORTED", "This server feed has no subscription identifier; sync the account before managing it.")
+                }
+                return feed
+            }
+        }
+        let feed = try validate()
+        guard let provider = await syncCoordinator.provider(for: mutation.accountID) else {
+            throw AgentFailure("UNSUPPORTED", "The account provider is unavailable for feed management.")
+        }
+        _ = try validate()
+        let sync = provider.accountType == .local ? "local_only" : provider.accountType == .iCloud ? "queued" : "server_committed"
+        switch mutation.kind {
+        case "add_feed":
+            guard let added = await addFeed(urlText: mutation.url!, title: mutation.title,
+                                           targetAccountID: mutation.accountID, folder: mutation.folder) else {
+                throw AgentFailure("INTERNAL_ERROR", "The account provider could not add the feed.")
+            }
+            return AgentFeedWriteResult(feedID: added.id.uuidString, title: added.title, sync: sync)
+        case "rename_feed":
+            guard let feed, let title = mutation.title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  title.unicodeScalars.count <= 200 else { throw AgentFailure("INVALID_ARGUMENT", "A title of 1–200 characters is required.") }
+            try await renameFeedAsync(feed, to: title)
+            return AgentFeedWriteResult(feedID: feed.id.uuidString, title: title, sync: sync)
+        case "remove_feed":
+            guard let feed else { throw AgentFailure("NOT_FOUND", "Feed not found.") }
+            try await provider.deleteFeed(feedID: feed.id)
+            invalidatedRefreshFeedIDs.insert(feed.id)
+            activeRefreshFeedTasks[feed.id]?.cancel()
+            publishDeletedFeedState([feed.id])
+            await reloadStateAsync()
+            return AgentFeedWriteResult(feedID: feed.id.uuidString, title: feed.title, sync: sync)
+        default:
+            throw AgentFailure("UNSUPPORTED", "This feed operation is not supported.")
         }
     }
 

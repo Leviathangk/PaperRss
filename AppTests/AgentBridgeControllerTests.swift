@@ -119,3 +119,45 @@ extension AgentBridgeControllerTests {
         await bridge.stop()
     }
 }
+
+extension AgentBridgeControllerTests {
+    func testFeedAliasesRequireAppClickAndUseInjectedExecutor() async throws {
+        let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("build/agent-feed-bridge-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let database = try LibraryDatabase(databaseURL: directory.appendingPathComponent("library.sqlite"))
+        let provider = LocalAccountProvider(database: database)
+        try provider.ensureAccountExists()
+        let feed = try provider.addFeed(title: "Synthetic", feedURL: URL(string: "https://example.org/feed")!)
+        let center = AgentApprovalCenter(showPanel: false)
+        let bridge = AgentBridgeController(defaults: AgentVolatileDefaults(), directory: directory, approvalCenter: center)
+        var executed: [String] = []
+        bridge.attachForTesting(database: database, feedExecutor: { mutation, _ in
+            executed.append(mutation.kind)
+            return AgentFeedWriteResult(feedID: mutation.feedID ?? "created-feed", title: mutation.title ?? "Synthetic", sync: "local_only")
+        })
+        let status = try await bridge.call(tool: "paperrss_status", arguments: [:])
+        XCTAssertTrue(status["accounts"]?.arrayValue?.first?["capabilities"]?.arrayValue?.contains(.string("feeds.manage.approval")) == true)
+        for (index, tool) in ["paperrss_add_feed", "paperrss_plan_add_feed", "paperrss_rename_feed", "paperrss_plan_rename_feed", "paperrss_remove_feed", "paperrss_plan_remove_feed"].enumerated() {
+            var arguments: [String: AgentJSON] = ["account_id": .string("local-default")]
+            if tool.contains("add_feed") { arguments["url"] = .string("https://example.org/new-\(index)") }
+            else { arguments["feed_id"] = .string(feed.id.uuidString) }
+            if tool.contains("rename") { arguments["title"] = .string("Renamed") }
+            let plan = try await bridge.call(tool: tool, arguments: arguments)
+            let id = try XCTUnwrap(plan["plan_id"]?.stringValue)
+            XCTAssertEqual(executed.count, index)
+            let request = try XCTUnwrap(center.pending.first)
+            XCTAssertEqual(request.isDestructive, tool.contains("remove"))
+            do {
+                _ = try await bridge.call(tool: "paperrss_apply_plan", arguments: ["plan_id": .string(id), "approval_id": .string("client-forged"), "idempotency_key": .string("forged-\(index)")])
+                XCTFail("Client must not approve its own feed mutation")
+            } catch let failure as AgentFailure { XCTAssertEqual(failure.code, "CONFIRMATION_REQUIRED") }
+            await center.approve(request)
+            let approved = try await bridge.call(tool: "paperrss_status", arguments: ["plan_id": .string(id)])
+            let approval = try XCTUnwrap(approved["approval_id"]?.stringValue)
+            _ = try await bridge.call(tool: "paperrss_apply_plan", arguments: ["plan_id": .string(id), "approval_id": .string(approval), "idempotency_key": .string("apply-\(index)")])
+            XCTAssertEqual(executed.count, index + 1)
+        }
+        await bridge.stop()
+    }
+}

@@ -25,6 +25,7 @@ public actor AgentLibraryService: AgentBridge {
     private struct PendingPlan {
         let dto: AgentStatePlan
         let before: [String: ArticleStateRecord]
+        var mutation: AgentFeedMutation? = nil
         var denied = false
         var approval: String?
         var receipt: AgentStateReceipt?
@@ -140,10 +141,9 @@ public actor AgentLibraryService: AgentBridge {
         case "paperrss_plan_state_change": return try plan(a)
         case "paperrss_plan_mark_read": return try planMarkRead(a)
         case "paperrss_apply_plan", "paperrss_apply_state_change": return try await apply(a)
-        case "paperrss_add_feed", "paperrss_rename_feed", "paperrss_remove_feed":
-            try authorize(try string(a, "account_id"))
-            // Do not claim an approvable operation when feed deletion/redirect policy is unfinished.
-            throw AgentFailure("UNSUPPORTED", "Feed mutation contract only: App confirmation and provider integration are not implemented in this spike.")
+        case "paperrss_add_feed", "paperrss_rename_feed", "paperrss_remove_feed",
+             "paperrss_plan_add_feed", "paperrss_plan_rename_feed", "paperrss_plan_remove_feed":
+            return try planFeed(tool.replacingOccurrences(of: "paperrss_", with: "").replacingOccurrences(of: "plan_", with: ""), a)
         default: throw AgentFailure("INVALID_ARGUMENT", "Unknown tool.")
         }
     }
@@ -160,7 +160,7 @@ public actor AgentLibraryService: AgentBridge {
             "transport": .string("in_process_spike"),
             "accounts": .array(policy.accountIDs.sorted().map { .object([
                 "account_id": .string($0), "capabilities": .array(
-                    (["metadata.read", "content.read.selection"] + (policy.allowStateChanges ? ["state.write.approval"] : [])).map { .string($0) })]) }),
+                    (["metadata.read", "content.read.selection"] + (policy.allowStateChanges ? ["state.write.approval", "feeds.manage.approval"] : [])).map { .string($0) })]) }),
             "selection_ids": .array(selections.filter { $0.value.expires > clock() }.keys.sorted().map { .string($0) }),
             "pending_approvals": .number(Double(plans.values.filter { !$0.denied && $0.approval == nil && $0.receipt == nil && $0.dto.expires_at > clock() }.count)),
             "remaining_characters": .number(Double(remainingCharacters))
@@ -193,7 +193,7 @@ public actor AgentLibraryService: AgentBridge {
         if write && !policy.allowStateChanges { throw AgentFailure("UNAUTHORIZED", "State changes are not enabled.") }
     }
     private func checkAccount(_ account: String, write: Bool = false, in db: Database) throws {
-        guard let record = try AccountRecord.fetchOne(db, key: account), record.isEnabled,
+        guard let record = try AccountRecord.fetchOne(db, key: account), record.isEnabled, !record.isArchived,
               AccountType(rawValue: record.type) != nil else {
             throw AgentFailure("NOT_FOUND", "Enabled account not found.")
         }
@@ -456,6 +456,84 @@ public actor AgentLibraryService: AgentBridge {
         return try .encoding(dto)
     }
 
+    private func validateFeedMutation(_ mutation: AgentFeedMutation) throws {
+        try authorize(mutation.accountID, write: true)
+        try database.read { db in
+            if let raw = mutation.url {
+                guard let url = URL(string: raw), ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+                      let host = url.host, !host.isEmpty, url.user == nil, url.password == nil,
+                      raw.count <= 2048 else {
+                    throw AgentFailure("INVALID_ARGUMENT", "Feed URL must be HTTP(S) without credentials.")
+                }
+                let feeds = try provider.feedRepository.fetchAllFeedModels(accountID: mutation.accountID, in: db)
+                guard !feeds.contains(where: { $0.feedURL == url }) else {
+                    throw AgentFailure("CONFLICT", "Already subscribed to this feed in the account.")
+                }
+            }
+            if let id = mutation.feedID {
+                guard UUID(uuidString: id) != nil, let feed = try provider.feedRepository.fetchFeed(id: id, in: db),
+                      feed.accountID == mutation.accountID, !feed.isDeleted else {
+                    throw AgentFailure("NOT_FOUND", "Feed not found in the allowed account.")
+                }
+            }
+        }
+    }
+
+    private func planFeed(_ kind: String, _ a: [String: AgentJSON]) throws -> AgentJSON {
+        let allowed: Set<String> = kind == "add_feed" ? ["account_id", "url", "title", "folder"]
+            : kind == "rename_feed" ? ["account_id", "feed_id", "title"] : ["account_id", "feed_id"]
+        guard Set(a.keys).isSubset(of: allowed) else { throw AgentFailure("INVALID_ARGUMENT", "Unexpected feed plan arguments.") }
+        let account = try string(a, "account_id")
+        func optionalText(_ key: String) throws -> String? {
+            guard let value = a[key] else { return nil }
+            guard let text = value.stringValue, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  text.unicodeScalars.count <= 200 else { throw AgentFailure("INVALID_ARGUMENT", "Invalid \(key); use 1–200 characters.") }
+            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let title = try optionalText("title"), folder = try optionalText("folder")
+        if kind == "rename_feed", title == nil { throw AgentFailure("INVALID_ARGUMENT", "title is required.") }
+        let rawURL: String?
+        if kind == "add_feed" {
+            guard let text = a["url"]?.stringValue, !text.isEmpty else { throw AgentFailure("INVALID_ARGUMENT", "url is required.") }
+            rawURL = text
+        } else { rawURL = nil }
+        let mutation = AgentFeedMutation(kind: kind, accountID: account,
+            feedID: kind == "add_feed" ? nil : try string(a, "feed_id"), url: rawURL, title: title, folder: folder)
+        try validateFeedMutation(mutation)
+        let (summary, english, count): (String, String, Int) = try database.read { db in
+            let record = try AccountRecord.fetchOne(db, key: account)!
+            var label = record.type == "freshRSS" ? "FreshRSS" : record.type == "miniflux" ? "Miniflux" : record.type == "iCloud" ? "iCloud" : "Local"
+            if ["freshRSS", "miniflux"].contains(record.type), let endpoint = record.endpointURL,
+               let components = URLComponents(string: endpoint), let host = components.host,
+               !host.contains("@"), !host.contains("%") {
+                label += "（" + host + "）"
+            }
+            if kind == "add_feed" {
+                let safe = Self.safeSourceURL(URL(string: rawURL!)) ?? "HTTP(S) feed (URL redacted)"
+                let details = (title.map { " · " + $0 } ?? "") + (folder.map { " · folder: " + $0 } ?? "")
+                return ("在 \(label) 中添加订阅 \(safe)\(details)", "Add subscription \(safe) in \(label)\(details)", 0)
+            }
+            let feed = try provider.feedRepository.fetchFeed(id: mutation.feedID!, in: db)!
+            let name = String(feed.title.plainText.prefix(200))
+            let total = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM items WHERE account_id = ? AND feed_id = ?", arguments: [account, feed.id]) ?? 0
+            let starred = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM items i JOIN article_states s ON s.item_id = i.id WHERE i.account_id = ? AND i.feed_id = ? AND s.is_starred = 1", arguments: [account, feed.id]) ?? 0
+            if kind == "remove_feed" {
+                return ("删除订阅源 “\(name)”（含 \(total) 篇文章，已收藏 \(starred) 篇）。永久删除，无法撤销。",
+                        "Delete feed \"\(name)\" (\(total) articles, \(starred) starred). Destructive; no undo.", total)
+            }
+            return ("将订阅源 “\(name)” 重命名为 “\(title!)”", "Rename feed \"\(name)\" to \"\(title!)\"", 0)
+        }
+        guard plans.count < 100 else { throw AgentFailure("RATE_LIMITED", "Session plan capacity reached.") }
+        try charge(summary.count + english.count)
+        var dto = AgentStatePlan(plan_id: UUID().uuidString, account_id: account, article_ids: [], field: .read, value: false,
+            expires_at: clock().addingTimeInterval(900), retention_notice: kind == "remove_feed" ? "Permanently deletes feed history including starred articles. No undo." : "Changes the subscription in the selected account.",
+            action_kind: kind, summary: summary, summary_en: english, affected_count: count, sample_titles: [], approval: "pending",
+            next_step: "Ask the user to approve in PaperRss, poll paperrss_status with plan_id, then paperrss_apply_plan.")
+        dto.destructive_hint = kind == "remove_feed"
+        plans[dto.plan_id] = PendingPlan(dto: dto, before: [:], mutation: mutation)
+        return try .encoding(dto)
+    }
+
     private func planMarkRead(_ a: [String: AgentJSON]) throws -> AgentJSON {
         let account = try string(a, "account_id"), scope = try string(a, "scope")
         try authorize(account, write: true)
@@ -543,6 +621,34 @@ public actor AgentLibraryService: AgentBridge {
                 }
                 return (dto.field == .read ? current.isRead : current.isStarred) != dto.value
             }
+        }
+        if let mutation = pending.mutation {
+            try validateFeedMutation(mutation)
+            let result: AgentFeedWriteResult
+            if let writeExecutor {
+                result = try await writeExecutor.executeFeed(mutation, expiresAt: dto.expires_at)
+            } else {
+                // Only isolated local storage is allowed without the App executor.
+                let local = LocalAccountProvider(accountID: dto.account_id, database: database)
+                switch mutation.kind {
+                case "add_feed":
+                    let feed = try local.addFeed(title: mutation.title ?? URL(string: mutation.url!)!.host!, feedURL: URL(string: mutation.url!)!, folder: mutation.folder)
+                    result = AgentFeedWriteResult(feedID: feed.id.uuidString, title: feed.title, sync: "local_only")
+                case "rename_feed":
+                    try await local.renameFeed(feedID: UUID(uuidString: mutation.feedID!)!, newTitle: mutation.title!)
+                    result = AgentFeedWriteResult(feedID: mutation.feedID, title: mutation.title, sync: "local_only")
+                default:
+                    try await local.deleteFeed(feedID: UUID(uuidString: mutation.feedID!)!)
+                    result = AgentFeedWriteResult(feedID: mutation.feedID, title: nil, sync: "local_only")
+                }
+            }
+            var receipt = AgentStateReceipt(operation_id: UUID().uuidString, applied_count: 1, skipped_count: 0, local_commit: "committed", sync: result.sync)
+            receipt.feed_id = result.feedID
+            receipt.feed_title = result.title.map { String($0.plainText.prefix(200)) }
+            guard policy.enabled, plans[id] != nil else { throw AgentFailure("NOT_ENABLED", "Session was revoked during execution.") }
+            pending.receipt = receipt; plans[id] = pending
+            receipts[key] = Replay(plan: id, approval: approval, receipt: receipt)
+            return try .encoding(receipt)
         }
         let result: AgentWriteResult
         if let writeExecutor {

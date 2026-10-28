@@ -66,20 +66,21 @@ final class AgentMCPInstallTargetsTests: XCTestCase {
                 let yaml = try String(contentsOf: file, encoding: .utf8)
                 let expected = """
 
-                - id: mcp-paperrss
-                  name: '@deepseek-ai/dsh-mcp-client'
-                  config:
-                    serverName: paperrss
-                    transport: stdio
-                    command: '/Applications/Paper Rss''s.app/Contents/MacOS/paperrss-agent'
-                    args: [serve, --stdio, --client, dsh]
-                    env:
-                      PAPERRSS_AGENT_ENABLED: '1'
+                - insert:
+                    - id: mcp-paperrss
+                      name: '@deepseek-ai/dsh-mcp-client'
+                      config:
+                        serverName: paperrss
+                        transport: stdio
+                        command: '/Applications/Paper Rss''s.app/Contents/MacOS/paperrss-agent'
+                        args: [serve, --stdio, --client, dsh]
+                        env:
+                          PAPERRSS_AGENT_ENABLED: '1'
 
                 """
                 XCTAssertEqual(yaml, (initial?.hasPrefix("- id: other") == true ? initial! : "") + expected)
                 // Decode the YAML single-quoted scalar and verify no shell quoting leaked into its value.
-                let scalar = try XCTUnwrap(yaml.components(separatedBy: "    command: '").last?.components(separatedBy: "'\n").first)
+                let scalar = try XCTUnwrap(yaml.components(separatedBy: "        command: '").last?.components(separatedBy: "'\n").first)
                 XCTAssertEqual(scalar.replacingOccurrences(of: "''", with: "'"), path)
                 XCTAssertEqual(yaml.components(separatedBy: "id: mcp-paperrss").count - 1, 1)
             }

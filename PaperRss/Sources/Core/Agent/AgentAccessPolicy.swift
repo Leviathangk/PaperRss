@@ -23,7 +23,36 @@ public enum AgentStateField: String, Codable, Sendable { case read, starred }
 
 /// App supplies the normal provider/sync write path. No executor means isolated local-only storage.
 public protocol AgentWriteExecutor: Sendable {
+    func executeFeed(_ mutation: AgentFeedMutation, expiresAt: Date) async throws -> AgentFeedWriteResult
     func execute(accountID: String, articleIDs: [String], field: AgentStateField, value: Bool, expiresAt: Date) async throws -> AgentWriteResult
+}
+
+public extension AgentWriteExecutor {
+    func executeFeed(_ mutation: AgentFeedMutation, expiresAt: Date) async throws -> AgentFeedWriteResult {
+        throw AgentFailure("UNSUPPORTED", "Feed management is unavailable for this executor.")
+    }
+}
+
+public struct AgentFeedMutation: Sendable {
+    public let kind: String
+    public let accountID: String
+    public let feedID: String?
+    public let url: String?
+    public let title: String?
+    public let folder: String?
+    public init(kind: String, accountID: String, feedID: String? = nil, url: String? = nil, title: String? = nil, folder: String? = nil) {
+        self.kind = kind; self.accountID = accountID; self.feedID = feedID
+        self.url = url; self.title = title; self.folder = folder
+    }
+}
+
+public struct AgentFeedWriteResult: Sendable {
+    public let feedID: String?
+    public let title: String?
+    public let sync: String
+    public init(feedID: String?, title: String?, sync: String) {
+        self.feedID = feedID; self.title = title; self.sync = sync
+    }
 }
 
 public struct AgentWriteResult: Sendable {
@@ -50,12 +79,17 @@ public struct AgentStatePlan: Codable, Sendable {
     public let sample_titles: [String]
     public let approval: String
     public let next_step: String
+    public var destructive_hint: Bool = false
+    public var untrusted: Bool = true
 }
 
 public struct AgentStateReceipt: Codable, Sendable, Equatable {
     public let operation_id: String
     public let applied_count: Int
     public let skipped_count: Int
+    public var feed_id: String? = nil
+    public var feed_title: String? = nil
+    public var untrusted: Bool = true
     public let local_commit: String
     public let sync: String
 }

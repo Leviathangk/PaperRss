@@ -40,6 +40,19 @@ final class AgentApprovalCenter: ObservableObject {
             self.summaryEnglish = summaryEnglish
         }
         var id: Key { Key(sessionID: sessionID, planID: planID) }
+        var isDestructive: Bool { actionKind == "remove_feed" }
+        var isFeedManagement: Bool { ["add_feed", "rename_feed", "remove_feed"].contains(actionKind) }
+        @MainActor var warning: String {
+            if isDestructive {
+                return I18N.shared.localized("删除订阅源会移除其中的文章（包括收藏），并同步到该账号。此操作不可撤销。",
+                    "Removing this feed deletes its articles, including starred articles, and updates this account. This cannot be undone.")
+            }
+            if isFeedManagement {
+                return I18N.shared.localized("此更改将应用到所选账号。此操作不提供撤销。", "This change applies to the selected account. No undo is provided.")
+            }
+            return I18N.shared.localized("标为已读或取消收藏可能使文章符合自动清理条件。同步账号的更改将排队同步。此操作不提供撤销。",
+                "Marking read or removing a star may make articles eligible for retention cleanup. Changes to synced accounts are queued for sync. No undo is provided.")
+        }
     }
     typealias Decision = @MainActor () async throws -> Void
     private struct Actions { let approve: Decision; let deny: Decision }
@@ -176,10 +189,9 @@ struct AgentApprovalList: View {
                         ForEach(Array(request.sampleTitles.prefix(5).enumerated()), id: \.offset) { _, title in
                             Text(verbatim: clipped(title, limit: 160)).font(.caption).lineLimit(2)
                         }
-                        Text(verbatim: i18n.localized(
-                            "标为已读或取消收藏可能使文章符合自动清理条件。同步账号的更改将排队同步。此操作不提供撤销。",
-                            "Marking read or removing a star may make articles eligible for retention cleanup. Changes to synced accounts are queued for sync. No undo is provided."))
-                            .font(.caption).foregroundStyle(.secondary)
+                        Text(verbatim: request.warning)
+                            .font(.caption).foregroundStyle(request.isDestructive ? Color.red : Color.secondary)
+                            .accessibilityIdentifier("agent.approval.warning.\(request.planID)")
                         Text(i18n.localized("到期时间：", "Expires: ") + request.expiresAt.formatted(date: .omitted, time: .standard))
                             .font(.caption).foregroundStyle(.secondary)
                         if center.failed.contains(request.id) {
@@ -206,6 +218,9 @@ struct AgentApprovalList: View {
 
     private func actionTitle(_ kind: String) -> String {
         switch kind {
+        case "add_feed": return i18n.localized("添加订阅源", "Add Feed")
+        case "rename_feed": return i18n.localized("重命名订阅源", "Rename Feed")
+        case "remove_feed": return i18n.localized("删除订阅源（不可撤销）", "Remove Feed (Cannot Be Undone)")
         case "mark_read": return i18n.localized("批量标为已读", "Mark Articles Read")
         case "state_change": return i18n.localized("更改已读或收藏状态", "Change Read or Starred State")
         default: return i18n.localized("更改文章状态", "Change Article State")

@@ -618,16 +618,177 @@ final class AgentLibraryServiceTests: XCTestCase {
         }
     }
 
-    func testFeedMutationStubsNeverReportSuccessOrChangeFeeds() async throws {
+    func testFeedAliasesCreatePlansWithoutWritesAndRemovalWarnsAboutStarredHistory() async throws {
         let fixture = try Fixture(); defer { try? fixture.remove() }
         let service = fixture.service()
-        for tool in ["paperrss_add_feed", "paperrss_rename_feed", "paperrss_remove_feed"] {
-            await expectFailure("UNSUPPORTED") {
-                _ = try await service.call(tool: tool, arguments: ["account_id": account, "feed_id": .string(fixture.feed.id.uuidString)])
+        let cases: [(String, [String: AgentJSON])] = [
+            ("add_feed", ["account_id": account, "url": .string("https://example.org/new")]),
+            ("rename_feed", ["account_id": account, "feed_id": .string(fixture.feed.id.uuidString), "title": .string("Renamed")]),
+            ("remove_feed", ["account_id": account, "feed_id": .string(fixture.feed.id.uuidString)])
+        ]
+        for (kind, args) in cases {
+            for name in ["paperrss_" + kind, "paperrss_plan_" + kind] {
+                let plan = try await service.call(tool: name, arguments: args)
+                XCTAssertEqual(plan["approval"], .string("pending"))
+                XCTAssertEqual(plan["action_kind"], .string(kind))
+                XCTAssertEqual(plan["untrusted"], .bool(true))
+                if kind == "remove_feed" {
+                    XCTAssertEqual(plan["affected_count"], .number(3))
+                    XCTAssertEqual(plan["destructive_hint"], .bool(true))
+                    XCTAssertTrue(plan["summary_en"]?.stringValue?.contains("1 starred") == true)
+                    XCTAssertTrue(plan["retention_notice"]?.stringValue?.contains("No undo") == true)
+                }
             }
         }
         let feeds = try fixture.provider.fetchFeeds()
         XCTAssertEqual(feeds.count, 1)
         XCTAssertEqual(feeds.first?.title, "Fixture feed")
+        XCTAssertTrue(try fixture.state("c").isStarred)
+    }
+
+    func testLocalFeedLifecycleRequiresApprovalAndReturnsAddReceipt() async throws {
+        let fixture = try Fixture(); defer { try? fixture.remove() }
+        let service = fixture.service()
+        let plan = try await service.call(tool: "paperrss_plan_add_feed", arguments: [
+            "account_id": account, "url": .string("https://example.org/new"), "title": .string("New feed"), "folder": .string("Science")])
+        let id = try XCTUnwrap(plan["plan_id"]?.stringValue)
+        await expectFailure("CONFIRMATION_REQUIRED") {
+            _ = try await service.call(tool: "paperrss_apply_plan", arguments: applyArguments(plan: id, approval: "forged"))
+        }
+        XCTAssertEqual(try fixture.provider.fetchFeeds().count, 1)
+        let approval = try await service.approve(planID: id)
+        let args = applyArguments(plan: id, approval: approval)
+        let receipt = try await service.call(tool: "paperrss_apply_plan", arguments: args)
+        let feedID = try XCTUnwrap(receipt["feed_id"]?.stringValue)
+        XCTAssertEqual(receipt["feed_title"], .string("New feed"))
+        XCTAssertEqual(receipt["sync"], .string("local_only"))
+        let replay = try await service.call(tool: "paperrss_apply_plan", arguments: args)
+        XCTAssertEqual(replay, receipt)
+        XCTAssertEqual(try fixture.provider.fetchFeeds().count, 2)
+        for (index, kind) in ["rename_feed", "remove_feed"].enumerated() {
+            var arguments: [String: AgentJSON] = ["account_id": account, "feed_id": .string(feedID)]
+            if kind == "rename_feed" { arguments["title"] = .string("Renamed") }
+            let plan = try await service.call(tool: "paperrss_plan_" + kind, arguments: arguments)
+            let id = try XCTUnwrap(plan["plan_id"]?.stringValue)
+            let approval = try await service.approve(planID: id)
+            _ = try await service.call(tool: "paperrss_apply_plan", arguments: applyArguments(plan: id, approval: approval, key: "lifecycle-\(index)"))
+            let feeds = try fixture.provider.fetchFeeds()
+            if kind == "rename_feed" { XCTAssertEqual(feeds.first { $0.id.uuidString == feedID }?.title, "Renamed") }
+            else { XCTAssertNil(feeds.first { $0.id.uuidString == feedID }) }
+        }
+    }
+
+    func testFeedPlanURLTitleDuplicateAndOwnershipValidation() async throws {
+        let fixture = try Fixture(); defer { try? fixture.remove() }
+        let other = LocalAccountProvider(accountID: "other", database: fixture.database)
+        try other.ensureAccountExists()
+        let service = AgentLibraryService(database: fixture.database,
+            policy: AgentAccessPolicy(enabled: true, accountIDs: ["local-default", "other"], allowStateChanges: true))
+        for url in ["file:///tmp/feed", "ftp://example.org/feed", "https://user:password@example.org/feed", "https:///", "not a URL"] {
+            await expectFailure("INVALID_ARGUMENT") {
+                _ = try await service.call(tool: "paperrss_plan_add_feed", arguments: ["account_id": account, "url": .string(url)])
+            }
+        }
+        await expectFailure("CONFLICT") {
+            _ = try await service.call(tool: "paperrss_plan_add_feed", arguments: ["account_id": account, "url": .string(fixture.feed.feedURL.absoluteString)])
+        }
+        for title in ["", "  ", String(repeating: "x", count: 201)] {
+            await expectFailure("INVALID_ARGUMENT") {
+                _ = try await service.call(tool: "paperrss_plan_rename_feed", arguments: ["account_id": account, "feed_id": .string(fixture.feed.id.uuidString), "title": .string(title)])
+            }
+        }
+        await expectFailure("NOT_FOUND") {
+            _ = try await service.call(tool: "paperrss_plan_remove_feed", arguments: ["account_id": .string("other"), "feed_id": .string(fixture.feed.id.uuidString)])
+        }
+        await expectFailure("INVALID_ARGUMENT") {
+            _ = try await service.call(tool: "paperrss_add_feed", arguments: ["account_id": account, "url": .string("https://example.org/new"), "approval_id": .string("forged")])
+        }
+        let secretPlan = try await service.call(tool: "paperrss_plan_add_feed", arguments: ["account_id": account, "url": .string("https://example.org/new?token=SECRET_SENTINEL")])
+        XCTAssertFalse(String(decoding: try JSONEncoder().encode(secretPlan), as: UTF8.self).contains("SECRET_SENTINEL"))
+    }
+
+    func testFeedApplyRechecksDuplicateOwnershipDenialAndExpiry() async throws {
+        let fixture = try Fixture(); defer { try? fixture.remove() }
+        let clock = TestClock(), service = fixture.service(clock: { clock.now() })
+        let args: [String: AgentJSON] = ["account_id": account, "url": .string("https://example.org/new")]
+        let plan = try await service.call(tool: "paperrss_plan_add_feed", arguments: args)
+        let id = try XCTUnwrap(plan["plan_id"]?.stringValue)
+        let approval = try await service.approve(planID: id)
+        _ = try fixture.provider.addFeed(title: "Concurrent subscription", feedURL: URL(string: "https://example.org/new")!)
+        await expectFailure("CONFLICT") {
+            _ = try await service.call(tool: "paperrss_apply_plan", arguments: applyArguments(plan: id, approval: approval))
+        }
+        for mode in ["denied", "expired", "removed"] {
+            let plan = try await service.call(tool: "paperrss_plan_remove_feed", arguments: ["account_id": account, "feed_id": .string(fixture.feed.id.uuidString)])
+            let id = try XCTUnwrap(plan["plan_id"]?.stringValue)
+            let approval = try await service.approve(planID: id)
+            if mode == "denied" { try await service.deny(planID: id) }
+            if mode == "expired" { clock.advance(901) }
+            if mode == "removed" { try await fixture.provider.deleteFeed(feedID: fixture.feed.id) }
+            await expectFailure(mode == "denied" ? "DENIED" : mode == "expired" ? "CONFLICT" : "NOT_FOUND") {
+                _ = try await service.call(tool: "paperrss_apply_plan", arguments: applyArguments(plan: id, approval: approval, key: mode))
+            }
+        }
+    }
+
+    private actor FeedRecordingExecutor: AgentWriteExecutor {
+        var calls: [AgentFeedMutation] = []
+        func execute(accountID: String, articleIDs: [String], field: AgentStateField, value: Bool, expiresAt: Date) async throws -> AgentWriteResult {
+            throw AgentFailure("UNSUPPORTED", "Only feed fixture writes are supported.")
+        }
+        func executeFeed(_ mutation: AgentFeedMutation, expiresAt: Date) async throws -> AgentFeedWriteResult {
+            calls.append(mutation)
+            return AgentFeedWriteResult(feedID: mutation.feedID ?? "fake-added-feed", title: mutation.title ?? "Server title", sync: "synced")
+        }
+    }
+
+    func testEveryAccountFeedMutationUsesFakeExecutorAndReplayDoesNotRepeat() async throws {
+        let fixture = try Fixture(); defer { try? fixture.remove() }
+        for type in [AccountType.local, .iCloud, .freshRSS, .miniflux] {
+            try fixture.database.write { db in
+                try db.execute(sql: "UPDATE accounts SET type = ? WHERE id = 'local-default'", arguments: [type.rawValue])
+            }
+            let executor = FeedRecordingExecutor()
+            let service = AgentLibraryService(database: fixture.database,
+                policy: AgentAccessPolicy(enabled: true, accountIDs: ["local-default"], allowStateChanges: true), writeExecutor: executor)
+            let status = try await service.call(tool: "paperrss_status", arguments: [:])
+            XCTAssertTrue(status["accounts"]?.arrayValue?.first?["capabilities"]?.arrayValue?.contains(.string("feeds.manage.approval")) == true)
+            for kind in ["add_feed", "rename_feed", "remove_feed"] {
+                var args: [String: AgentJSON] = ["account_id": account]
+                if kind == "add_feed" { args["url"] = .string("https://example.org/new"); args["folder"] = .string("Science") }
+                else { args["feed_id"] = .string(fixture.feed.id.uuidString) }
+                if kind != "remove_feed" { args["title"] = .string("Requested title") }
+                let plan = try await service.call(tool: "paperrss_plan_" + kind, arguments: args)
+                let id = try XCTUnwrap(plan["plan_id"]?.stringValue)
+                let approval = try await service.approve(planID: id)
+                let apply = applyArguments(plan: id, approval: approval, key: kind)
+                let receipt = try await service.call(tool: "paperrss_apply_plan", arguments: apply)
+                XCTAssertEqual(receipt["sync"], .string("synced"))
+                if kind == "add_feed" { XCTAssertEqual(receipt["feed_id"], .string("fake-added-feed")); XCTAssertEqual(receipt["feed_title"], .string("Requested title")) }
+                let replay = try await service.call(tool: "paperrss_apply_plan", arguments: apply)
+                XCTAssertEqual(receipt, replay)
+            }
+            let calls = await executor.calls
+            XCTAssertEqual(calls.map(\.kind), ["add_feed", "rename_feed", "remove_feed"])
+            XCTAssertEqual(calls.map(\.accountID), Array(repeating: "local-default", count: 3))
+            XCTAssertEqual(calls.first?.folder, "Science")
+            XCTAssertEqual(try fixture.provider.fetchFeeds().count, 1)
+        }
+    }
+
+    func testFeedUnsupportedExecutorFailsWithoutSuccessReceipt() async throws {
+        let fixture = try Fixture(); defer { try? fixture.remove() }
+        let service = AgentLibraryService(database: fixture.database,
+            policy: AgentAccessPolicy(enabled: true, accountIDs: ["local-default"], allowStateChanges: true), writeExecutor: RecordingExecutor())
+        let plan = try await service.call(tool: "paperrss_plan_add_feed", arguments: ["account_id": account, "url": .string("https://example.org/new")])
+        let id = try XCTUnwrap(plan["plan_id"]?.stringValue)
+        let approval = try await service.approve(planID: id)
+        await expectFailure("UNSUPPORTED") {
+            _ = try await service.call(tool: "paperrss_apply_plan", arguments: applyArguments(plan: id, approval: approval))
+        }
+        let status = try await service.call(tool: "paperrss_status", arguments: ["plan_id": .string(id)])
+        XCTAssertEqual(status["plan_state"], .string("approved"))
+        XCTAssertNil(status["receipt"])
+        XCTAssertEqual(try fixture.provider.fetchFeeds().count, 1)
     }
 }

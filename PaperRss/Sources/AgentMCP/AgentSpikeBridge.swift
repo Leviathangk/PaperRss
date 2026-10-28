@@ -52,7 +52,7 @@ public struct AgentFixtureBridge: AgentBridge {
             throw AgentFailure("UNSUPPORTED", "Fixture has no App window to open.")
         case "paperrss_list_feeds":
             return .object(["feeds": .array([.object(["id": .string("fixture-feed"), "title": .string("PaperRss smoke fixture"),
-                "unread_count": .number(1), "article_count": .number(1)])]), "next_cursor": .null])
+                "account_id": .string("fixture-local"), "untrusted": .bool(true), "unread_count": .number(1), "article_count": .number(1)])]), "next_cursor": .null])
         case "paperrss_list_articles":
             if arguments["scope"]?.stringValue == "selection" {
                 throw AgentFailure("UNAUTHORIZED", "No content selections have been granted in fixture mode.")
@@ -81,6 +81,7 @@ public struct AgentFixtureBridge: AgentBridge {
         case "paperrss_get_content":
             throw AgentFailure("UNAUTHORIZED", "Fixture has no approved content selection. A client cannot issue its own approval.")
         case "paperrss_plan_state_change", "paperrss_plan_mark_read", "paperrss_apply_plan", "paperrss_apply_state_change",
+             "paperrss_plan_add_feed", "paperrss_plan_rename_feed", "paperrss_plan_remove_feed",
              "paperrss_add_feed", "paperrss_rename_feed", "paperrss_remove_feed":
             throw AgentFailure("CONFIRMATION_REQUIRED", "Fixture is read-only and cannot issue approvals. Use the running PaperRss App for human-approved writes.")
         default:

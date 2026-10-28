@@ -13,7 +13,7 @@
 - App 初始化库成功后取得 `owner` 排他锁。OFF 保留 owner 锁和 disabled 状态，移除数据 listener/token，并撤销已有会话；进程退出释放锁。helper 据此区分 `NOT_ENABLED` 与 `APP_NOT_RUNNING`。崩溃留下的 socket 只有在持有 owner 锁且确认无活跃 listener 后才清理；拒绝覆盖活跃实例。OFF 只留下状态文件，不提供库查询端口。
 - UDS 采用长度前缀 JSON；请求上限 64 KiB、响应上限 1 MiB，有限连接数、15 秒阻塞读写超时；认证后空闲等待不主动断开，阻塞 I/O 在后台队列。stdio stdout 只输出 JSON-RPC。无 TCP/HTTP 端口、launchd、云连接、自动打开 App 或全库导出。
 - 元数据允许所有已启用账户 unread/starred/selection；正文最多选 20 篇，每篇最多 20,000 字符，默认 8,000，selection 有效 15 分钟。每会话共享默认 100,000 字符预算及每分钟 60 个业务调用。正文仅用已存内容，不抓网页、不写缓存、不隐式标已读。文章文本全部视为不可信输入。
-- 真实 App 通过 `state.write.approval` 开放人工批准后的状态写入（见 Batch 2）；Feed CRUD 仍为 stub。未更改保留或清理策略。
+- 真实 App 通过 `state.write.approval` 开放人工批准后的状态写入（见 Batch 2）；Feed 管理使用同一人工审批链路（见 Batch 3）。未更改保留或清理策略。
 
 ## 构建与启用
 
@@ -125,7 +125,7 @@ SwiftPM 备选将可执行文件替换为 `.build/debug/PaperRssDesktop`。不�
 6. 同一连接伪造 selection 必须 UNAUTHORIZED；业务错误后有效 selection 仍可使用。另开 helper 不能复用该 selection。
 7. helper 不设置启用环境变量 → NOT_ENABLED；App 运行但 flag OFF → NOT_ENABLED；App 退出/无 listener/崩溃残留 socket → APP_NOT_RUNNING。再次打开 App 后可重新连接；旧 selection 失效。过早连 helper 的短暂 `APP_NOT_RUNNING` 见置顶第 3 条。
 8. 检查目录 0700、socket/token 0600（只查看权限，不把 token 内容贴群）。普通关闭 App 后应移除 socket/token；owner 文件可能保留但不再持锁。再次启动不得覆盖其它活跃实例。
-9. Feed 写工具应明确 UNSUPPORTED；状态写工具按下方 Batch 2 流程，未在 App 点击批准必须拒绝执行。
+9. Feed 写工具创建待批准计划（见 Batch 3）；状态写工具按下方 Batch 2 流程，未在 App 点击批准必须拒绝执行。
 
 离线 smoke 仍支持：
 
@@ -173,7 +173,7 @@ python3 scripts/build-support.py --lane tests --temporary -- \
 
 - 逐客户端身份配对、正文确认 UI 和升级链路仍待完善；状态写入已有 App 审批 UI（Batch 2）；只验证当前用户 token 信任模型，不保证 Mac App Store sandbox 可用。
 - 真实 App/Claude Desktop/Cursor/Codex GUI 三端尚需按上述步骤人工验收。自动化使用 App 相同 controller/service 和隔离 SQLite 库，不是生产阅读库验收。
-- 元数据与人工批准的状态写入支持全部已启用账户；Feed CRUD 仍未开放。读取库内数据不代表跨设备/iCloud/远端同步已验收。
+- 元数据与人工批准的状态写入支持全部已启用账户；Feed 管理已接入 App 人工审批（见 Batch 3）。读取库内数据不代表跨设备/iCloud/远端同步已验收。
 - 会话/selection/游标不持久化；断开或重启失效。预算为每连接，重新连接可获得新预算；正式版需要跨连接全局配额与可见授权管理。
 - 分页是查询/会话绑定的短期 live-offset cursor，非冻结快照；并发增删可能重复或遗漏，每次最多扫描 500 候选。正文现有的会话限量不等于不可绕过的永久出库上限。
 - URL 已过滤 userinfo/query/fragment，但无法识别所有 path 内秘密；正文授权仍需人工审查隐私和内容使用范围。本地传输不等于外部模型处理在本机。
@@ -213,16 +213,19 @@ Bro 硬要求（UDS-only 非 fixture、enable gate listen/revoke、0700/0600+pee
 DeepSeek dsh 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)，npm 包 `@deepseek-ai/dsh`，命令为 `dsh`。它没有 `mcp add` 命令；设置行复制一条 POSIX sh 命令，使用 `@deepseek-ai/dsh-mcp-client` loader 插件，将以下条目写入 `${DSH_HOME:-$HOME/.dsh}/cordis.patch.yml` 顶层 YAML 数组，作用于每个 profile：
 
 ```yaml
-- id: mcp-paperrss
-  name: '@deepseek-ai/dsh-mcp-client'
-  config:
-    serverName: paperrss
-    transport: stdio
-    command: '/Applications/PaperRss.app/Contents/MacOS/paperrss-agent'
-    args: [serve, --stdio, --client, dsh]
-    env:
-      PAPERRSS_AGENT_ENABLED: '1'
+- insert:
+    - id: mcp-paperrss
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: paperrss
+        transport: stdio
+        command: '/Applications/PaperRss.app/Contents/MacOS/paperrss-agent'
+        args: [serve, --stdio, --client, dsh]
+        env:
+          PAPERRSS_AGENT_ENABLED: '1'
 ```
+
+注意：dsh 的 patch 层（`cordis-plugin-include`）只能覆盖已有 id；直接写 `- id: mcp-paperrss` 会报 `patch: entry "mcp-paperrss" not found` 并被忽略，新条目必须包在顶层 `insert:` 中。已用 dsh 0.2.1-rc.2 在临时 `DSH_HOME` 下 `dsh web --dump-config` 验证该条目被加载。
 
 命令创建父目录、仅在不存在 `id: mcp-paperrss` 行时追加；纯空白/注释或空流数组 `[]` 会替换为新数组，其他条目保留。helper 路径分别进行 YAML 单引号和 shell 单引号转义。重复运行不重复添加；已有同 ID 条目不会更新，移动 App 后需手动更新该条目的路径。设置仍只复制命令，由用户在终端执行。
 
@@ -233,7 +236,7 @@ DeepSeek dsh 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 - `app: {version, build, debug}`：版本和构建号取 App 进程的 Bundle；SwiftPM 无 Bundle 元数据时为 `unknown`，绝不采用 helper 版本冒充。
 - `accounts[]: {account_id, type, display_name, enabled, server_host, feed_count, unread_count, last_sync_at, capabilities}`：包含 App 已知的禁用账户；禁用账户 capabilities 为空。type 为 `local` / `iCloud` / `freshRSS` / `miniflux`。
 - `server_host` 仅服务器账户返回 `host[:port]`，其他账户为 null；不返回 URL 的 userinfo、路径、查询或任何凭据字段。`last_sync_at` 为已知同步完成时间 ISO8601 或 null，本地账户可用最近 Feed 刷新时间。
-- 顶层 `capabilities` 为当前会话的 `metadata.read`、`content.read.selection`、`ui.open`；DB-only 测试未注入 opener 时没有 `ui.open`。`tools` 是 helper 公布的 13 个工具名称，包含尚未开放执行的写入契约；是否可执行以 capability / App 审批为准。
+- 顶层 `capabilities` 为当前会话的 `metadata.read`、`content.read.selection`、`ui.open`；DB-only 测试未注入 opener 时没有 `ui.open`。`tools` 是 helper 公布的工具名称（Batch 3 增加三个 feed plan 工具并保留旧名别名）；是否可执行以 capability / App 审批为准。
 
 快照由 attach(to:) 注入的 MainActor provider 读取 AppStore 账户/同步状态和既有 LibraryDatabase；不刷新、不同步、不访问网络。账户启停在后续请求中重新检查，不重置会话预算或授权。
 
@@ -280,3 +283,60 @@ Core 使用注入的 `AgentWriteExecutor`，真实 App 通过 AppStore/provider 
 本批验收边界：自动化不启动真实 PaperRss、不读取或修改用户阅读库及客户端配置；沙箱可能阻断 Unix socket 与缓存。原生 Xcode 构建、非抢焦点窗口行为和真实同步由用户补验，历史批次测试数字不能作为本批通过证据。
 
 本批自动化（2026-10-28）：使用仓库内 module cache，`swift build --disable-sandbox` 通过。最终非 socket 筛选 45 项全部通过：AgentLibraryServiceTests 26、AgentMCPTests 13、AgentApprovalCenterTests 5、会话审批路由桥接测试 1。此前包含 IPC 的筛选中另有 2 项通过，10 项受沙箱禁止 Unix socket bind 阻断（`Cannot bind private listener` / `Operation not permitted`），不能视为 IPC 通过。日志：`build/reports/agent-batch2-build-final.log`、`build/reports/agent-batch2-tests-final.log`、`build/reports/agent-batch2-tests.log`。新增源码由 Package.swift 的目录 target 与 Xcode filesystem-synchronized group 自动纳入；未启动真实 App，未执行 Git 写操作。
+
+
+## Batch 3：跨账户订阅管理与显式 `/`、`@` 调用（2026-10-28）
+
+### 订阅计划
+
+| 工具 | 参数与语义 |
+| --- | --- |
+| `paperrss_plan_add_feed` | `account_id`、HTTP(S) `url`，可选 `title`、`folder`；创建添加订阅计划，返回 pending，等待 App 点击批准。拒绝带 userinfo 的 URL、file/其他协议；同账户已订阅返回 `CONFLICT`。 |
+| `paperrss_plan_rename_feed` | `account_id`、`feed_id`、1–200 字符的非空 `title`；创建重命名计划并校验订阅属于目标账户。 |
+| `paperrss_plan_remove_feed` | `account_id`、`feed_id`；创建删除计划，显示文章总数和收藏数、永久删除且无法撤销的警告；工具 `destructiveHint=true`，计划 `destructive_hint=true`。 |
+| `paperrss_add_feed` / `paperrss_rename_feed` / `paperrss_remove_feed` | 上述三个计划工具的兼容别名，参数相同，只创建计划，不直接写入，也不接受客户端自签批准。 |
+| `paperrss_apply_plan` | 沿用 Batch 2 的 App-issued `approval_id`、会话与幂等键约束；执行前再次检查账户、订阅归属、重复 URL 和有效期。添加成功回执包含 `feed_id`、`feed_title`。 |
+
+每个可写账户在 status 公布 `feeds.manage.approval`。Local 使用本地 provider；iCloud 使用既有 provider/同步路径；FreshRSS、Miniflux 使用 UI 相同的 ReaderAccountProvider 服务端订阅 API。删除等待 provider 成功，不能把排队的 fire-and-forget 当作成功回执。provider 缺失或不支持操作时返回 `UNSUPPORTED`；任何服务端原始错误中的 URL 或凭据均不直接传给客户端。`sync` 的含义仍按回执解释，iCloud 队列提交不代表其他设备已收敛。
+
+所有写入继续使用同一 App 审批中心：计划 → 用户在 PaperRss 点击批准 → `paperrss_status {plan_id}` → `paperrss_apply_plan`。prompt、resource、旧工具别名、环境变量、RPC 参数都不能代替该点击。Feed 标题、文章标题及 prompt 参数视为不可信数据；URL 摘要不回显 userinfo/query/fragment 中的秘密。
+
+### Prompts 与 resources
+
+initialize 同时公布 `tools`、`prompts`、`resources`；实现 `prompts/list`、`prompts/get`、`resources/list`、`resources/read`、`resources/templates/list`。prompts 仅返回用户显式调用的工具操作模板，不调用 bridge、不执行读写；不自动批准任何计划。
+
+| Prompt | 参数 | 模板指导 |
+| --- | --- | --- |
+| `digest` | 可选 `since`（`today`、ISO 日期或 ISO8601 时间）、`account_id` | 发现授权账户，按时间读取未读元数据，按 feed 分组摘要；分页受预算限制，不获取正文、不标已读。 |
+| `feeds` | 可选 `account_id` | 读取订阅与未读数量，必要时跟随游标。 |
+| `mark_feed_read` | 必填 `feed`（标题或 ID） | 查找明确的 feed，创建 mark-read 计划，请用户在 App 批准，轮询 status 后 apply；歧义先澄清。 |
+| `open` | 必填 `query`（标题词或 ID） | 查找文章或 feed，调用 `paperrss_open`，不隐式标已读。 |
+
+resources 全部为只读 JSON（`mimeType: application/json`），使用相同 bridge、账户授权、调用速率和输出预算，不刷新或获取正文：
+
+- `paperrss://status`：当前状态和授权账户信息。
+- `paperrss://feeds`：授权账户的订阅元数据和未读数量。
+- `paperrss://unread/today`：App/helper 本地日界线之后的未读元数据。
+- 模板 `paperrss://feed/{feed_id}/unread`：指定 feed 的未读元数据。
+
+资源返回 `untrusted` 标记，并保留分页信息与后续工具参数；单次读取最多 20 个账户、每账户首个 20 项页面，不能把首个页面当作完整库。未知 URI 返回 JSON-RPC 错误。`--fixture` 同样提供 prompts/resources，数据为合成元数据，仍不签发批准或执行写入。
+
+### 各客户端的显式入口
+
+下表记录本批约定的入口；显示方式会随客户端版本变化。**本批未在真实客户端 CLI/GUI 验证任何一行**，自动化 MCP 协议测试不等于客户端菜单或快捷入口验收。
+
+| 客户端 | Prompts / `/` | Resources / `@` | Tools |
+| --- | --- | --- | --- |
+| Claude Code | `/mcp__paperrss__digest`，或菜单中的 `/paperrss:digest (MCP)` | `@paperrss:paperrss://feeds` | MCP 工具调用 |
+| VS Code / Insiders | `/mcp.paperrss.digest` | Add Context › MCP Resources，或 `MCP: Browse Resources` | `#` tool picker |
+| Cursor | `/` 菜单中选择 MCP prompt | 支持 MCP resources，按客户端上下文入口选择 | MCP 工具调用 |
+| Codex CLI | 以 tools 为主；本表不宣称支持 prompt `/` 入口 | 以当前版本内置资源工具可提供的 list/read 能力为准，不宣称资源 `@` 快捷语法 | MCP 工具调用 |
+| DeepSeek dsh | 不支持 MCP prompts | 通过 `dsh-mcp-resources` | `mcp__paperrss__*` |
+
+Verification:
+
+> 待用户补填：客户端名称与版本、操作系统、真实 CLI/GUI、prompt/resource/tool 的实际入口、通过/失败结果、日期及日志。当前所有客户端行均为未实机验证。
+
+本批测试使用隔离 SQLite fixture 与 fake executor/provider，覆盖计划校验、App 批准、回执、跨账户路由及 prompts/resources 协议；不访问真实阅读库或网络，不启动真实 PaperRss，不修改客户端配置。完整 Xcode 构建、真实服务端行为和客户端入口由用户补验；本节不借用前两批测试数字宣称本批通过。
+
+本批自动化结果（2026-10-28）：仓库内缓存配合 `--disable-sandbox` 的 `swift build` 通过；最终非 socket 筛选共 58 项通过（AgentLibraryServiceTests 31、AgentMCPTests 17、AgentApprovalCenterTests 6、AgentBridgeControllerTests 4）。首轮附带的 IPC 测试有 2 项通过、10 项因 Unix socket bind 被沙箱拒绝而失败，未宣称 IPC 验收通过。日志：`build/reports/agent-batch3-build-final.log`、`build/reports/agent-batch3-tests-final.log`、`build/reports/agent-batch3-tests.log`。全部修改位于现有 Swift 文件；Package.swift 目录 target、Xcode filesystem-synchronized group 与现有 helper 显式引用已覆盖，无新增源文件需注册。

@@ -21,6 +21,107 @@ final class AgentMCPTests: XCTestCase {
         request("tools/call", id: id, params: ["name": .string(name), "arguments": .object(arguments)])
     }
 
+    func testExplicitInvocationCatalogsAndPromptTemplates() async throws {
+        let bridge = RecordingBridge()
+        let server = AgentMCPServer(bridge: bridge)
+        let initReply = await server.handle(request("initialize", params: [
+            "protocolVersion": .string("2025-11-25"), "capabilities": .object([:]),
+            "clientInfo": .object(["name": .string("tests"), "version": .string("1")])]))
+        XCTAssertNotNil(initReply?["result"]?["capabilities"]?["prompts"])
+        XCTAssertNotNil(initReply?["result"]?["capabilities"]?["resources"])
+        let list = await server.handle(request("prompts/list"))
+        XCTAssertEqual(list?["result"]?["prompts"]?.arrayValue?.compactMap { $0["name"]?.stringValue }, ["digest", "feeds", "mark_feed_read", "open"])
+        for (name, args): (String, [String: AgentJSON]) in [
+            ("digest", ["since": .string("today")]), ("digest", ["since": .string("2026-10-28")]),
+            ("feeds", ["account_id": .string("a")]), ("mark_feed_read", ["feed": .string("Science")]),
+            ("open", ["query": .string("Swift")])
+        ] {
+            let reply = await server.handle(request("prompts/get", params: ["name": .string(name), "arguments": .object(args)]))
+            let text = try XCTUnwrap(reply?["result"]?["messages"]?.arrayValue?.first?["content"]?["text"]?.stringValue)
+            XCTAssertTrue(text.contains("paperrss_"))
+            XCTAssertTrue(text.contains("untrusted"))
+            if name == "mark_feed_read" {
+                for required in ["Approve in PaperRss", "paperrss_plan_mark_read", "paperrss_status", "paperrss_apply_plan", "approval_id"] { XCTAssertTrue(text.contains(required)) }
+            }
+        }
+        let count = await bridge.callCount
+        XCTAssertEqual(count, 0, "Prompt expansion must never read or mutate the App")
+        let resources = await server.handle(request("resources/list"))
+        XCTAssertEqual(resources?["result"]?["resources"]?.arrayValue?.count, 3)
+        let templates = await server.handle(request("resources/templates/list"))
+        XCTAssertEqual(templates?["result"]?["resourceTemplates"]?.arrayValue?.first?["uriTemplate"], .string("paperrss://feed/{feed_id}/unread"))
+    }
+
+    func testPromptAndResourceArgumentValidation() async {
+        let bridge = RecordingBridge()
+        let server = AgentMCPServer(bridge: bridge)
+        await initialize(server)
+        for params: [String: AgentJSON] in [
+            ["name": .string("unknown")], ["name": .string("mark_feed_read")],
+            ["name": .string("open"), "arguments": .object(["query": .string(" ")])],
+            ["name": .string("digest"), "arguments": .object(["since": .string("tomorrow")])],
+            ["name": .string("digest"), "arguments": .object(["since": .string("2026-02-30")])],
+            ["name": .string("feeds"), "arguments": .object(["account_id": .number(1)])],
+            ["name": .string("feeds"), "arguments": .object(["approval_id": .string("invented")])],
+            ["name": .string("open"), "arguments": .object(["query": .string(String(repeating: "x", count: 257))])]
+        ] {
+            let reply = await server.handle(request("prompts/get", params: params))
+            XCTAssertEqual(reply?["error"]?["code"], .number(-32602))
+        }
+        for uri in ["https://example.org", "paperrss://unknown", "paperrss://feed//unread", "paperrss://feed/a%2Fb/unread", "paperrss://status?token=x"] {
+            let reply = await server.handle(request("resources/read", params: ["uri": .string(uri)]))
+            XCTAssertEqual(reply?["error"]?["code"], .number(-32602))
+        }
+        for method in ["prompts/list", "resources/list", "resources/templates/list"] {
+            let reply = await server.handle(request(method, params: ["cursor": .string("unknown")]))
+            XCTAssertEqual(reply?["error"]?["code"], .number(-32602))
+        }
+        let count = await bridge.callCount
+        XCTAssertEqual(count, 0)
+    }
+
+    func testFixtureResourcesAreMetadataOnlyAndUseBridgePolicy() async throws {
+        let server = AgentMCPServer(bridge: AgentFixtureBridge(enabled: true))
+        await initialize(server)
+        for uri in ["paperrss://status", "paperrss://feeds", "paperrss://unread/today", "paperrss://feed/fixture-feed/unread"] {
+            let reply = await server.handle(request("resources/read", params: ["uri": .string(uri)]))
+            let content = try XCTUnwrap(reply?["result"]?["contents"]?.arrayValue?.first)
+            XCTAssertEqual(content["mimeType"], .string("application/json"))
+            XCTAssertEqual(content["uri"], .string(uri))
+            let text = try XCTUnwrap(content["text"]?.stringValue)
+            let payload = try JSONDecoder().decode(AgentJSON.self, from: Data(text.utf8))
+            XCTAssertEqual(payload["untrusted"], .bool(true))
+            XCTAssertFalse(text.contains("content_html"))
+            if uri == "paperrss://feeds" { XCTAssertEqual(payload["data"]?["pages"]?.arrayValue?.first?["data"]?["feeds"]?.arrayValue?.first?["untrusted"], .bool(true)) }
+        }
+        let disabled = AgentMCPServer(bridge: AgentFixtureBridge())
+        await initialize(disabled)
+        let denied = await disabled.handle(request("resources/read", params: ["uri": .string("paperrss://feeds")]))
+        XCTAssertTrue(denied?["error"]?["message"]?.stringValue?.contains("NOT_ENABLED") == true)
+    }
+
+    func testResourcesReadAllAuthorizedAccountsAndPreserveContinuation() async throws {
+        let bridge = ResourceBridge()
+        let server = AgentMCPServer(bridge: bridge)
+        await initialize(server)
+        let reply = await server.handle(request("resources/read", params: ["uri": .string("paperrss://feed/f/unread")]))
+        let text = try XCTUnwrap(reply?["result"]?["contents"]?.arrayValue?.first?["text"]?.stringValue)
+        let payload = try JSONDecoder().decode(AgentJSON.self, from: Data(text.utf8))
+        let pages = try XCTUnwrap(payload["data"]?["pages"]?.arrayValue)
+        XCTAssertEqual(pages.count, 2)
+        for page in pages {
+            XCTAssertEqual(page["arguments"]?["scope"], .string("unread"))
+            XCTAssertEqual(page["arguments"]?["feed_id"], .string("f"))
+            XCTAssertEqual(page["arguments"]?["limit"], .number(20))
+            XCTAssertEqual(page["data"]?["next_cursor"], .string("next"))
+        }
+        let calls = await bridge.calls
+        XCTAssertEqual(calls, ["paperrss_status", "paperrss_list_articles", "paperrss_list_articles"])
+        await bridge.setFailure()
+        let limited = await server.handle(request("resources/read", params: ["uri": .string("paperrss://feeds")]))
+        XCTAssertTrue(limited?["error"]?["message"]?.stringValue?.contains("CONTENT_BUDGET_EXCEEDED") == true)
+    }
+
     func testToolsListPaginationParameters() async throws {
         let server = AgentMCPServer(bridge: AgentUnavailableBridge())
         await initialize(server)
@@ -52,7 +153,7 @@ final class AgentMCPTests: XCTestCase {
         XCTAssertEqual(reply?["result"]?["protocolVersion"], .string("2025-03-26"))
     }
 
-    func testRegistrationHasThirteenStrictToolsAndSecurityAnnotations() async throws {
+    func testRegistrationHasStrictToolsAndSecurityAnnotations() async throws {
         let server = AgentMCPServer(bridge: AgentUnavailableBridge())
         await initialize(server)
         let reply = await server.handle(request("tools/list"))
@@ -60,7 +161,8 @@ final class AgentMCPTests: XCTestCase {
         XCTAssertEqual(Set(tools.compactMap { $0["name"]?.stringValue }), Set([
             "paperrss_status", "paperrss_open", "paperrss_list_feeds", "paperrss_list_articles", "paperrss_get_article",
             "paperrss_get_content", "paperrss_plan_state_change", "paperrss_plan_mark_read", "paperrss_apply_plan", "paperrss_apply_state_change",
-            "paperrss_add_feed", "paperrss_rename_feed", "paperrss_remove_feed"
+            "paperrss_add_feed", "paperrss_rename_feed", "paperrss_remove_feed",
+            "paperrss_plan_add_feed", "paperrss_plan_rename_feed", "paperrss_plan_remove_feed"
         ]))
         XCTAssertEqual(Set(tools.compactMap { $0["name"]?.stringValue }), Set(AgentToolCatalog.names))
         for tool in tools {
@@ -215,7 +317,7 @@ final class AgentMCPTests: XCTestCase {
         let oversized = try JSONDecoder().decode(AgentJSON.self, from: XCTUnwrap(rawOversized))
         XCTAssertEqual(oversized["error"]?["code"], .number(-32600))
         await initialize(server)
-        let unknown = await server.handle(request("resources/list"))
+        let unknown = await server.handle(request("unknown/method"))
         XCTAssertEqual(unknown?["error"]?["code"], .number(-32601))
         let notification = await server.handle(.object(["jsonrpc": .string("2.0"), "method": .string("notifications/initialized")]))
         XCTAssertNil(notification)
@@ -295,5 +397,19 @@ private actor WaitingBridge: AgentBridge {
         waiter = nil
         try await Task.sleep(for: .seconds(30))
         return .null
+    }
+}
+
+private actor ResourceBridge: AgentBridge {
+    var calls: [String] = []
+    private var fail = false
+    func setFailure() { fail = true }
+    func call(tool: String, arguments: [String: AgentJSON]) async throws -> AgentJSON {
+        calls.append(tool)
+        if tool == "paperrss_status" {
+            return .object(["enabled": .bool(true), "accounts": .array(["a", "b"].map { .object(["account_id": .string($0)]) })])
+        }
+        if fail { throw AgentFailure("CONTENT_BUDGET_EXCEEDED", "Budget exhausted.") }
+        return .object(["articles": .array([]), "next_cursor": .string("next")])
     }
 }
