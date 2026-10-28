@@ -41,15 +41,10 @@ final class AgentMCPInstallTargetsTests: XCTestCase {
         XCTAssertEqual(AgentMCPInstallTarget.claudeCode.command(path: path), "claude mcp add --scope user --env PAPERRSS_AGENT_ENABLED=1 --transport stdio paperrss -- \(quoted) serve --stdio --client claude-code")
         XCTAssertEqual(AgentMCPInstallTarget.codex.command(path: path), "codex mcp add paperrss --env PAPERRSS_AGENT_ENABLED=1 -- \(quoted) serve --stdio --client codex")
     }
-    func testSnippetsAndLabels() throws {
-        XCTAssertEqual(Set(AgentMCPInstallTarget.allCases.map(\.label)).count, AgentMCPInstallTarget.allCases.count)
-        for (target, configPath) in [(AgentMCPInstallTarget.claudeDesktop, "~/Library/Application Support/Claude/claude_desktop_config.json"), (.windsurf, "~/.config/devin/mcp_config.json"), (.geminiCLI, "~/.gemini/settings.json")] {
-            let snippet = try XCTUnwrap(target.snippet(path: path))
-            let servers = try XCTUnwrap(try object(snippet)["mcpServers"] as? [String: Any])
-            assertServer(try XCTUnwrap(servers["paperrss"] as? [String: Any]), label: target.label)
-            let note = try XCTUnwrap(target.configNote(english: true))
-            XCTAssertTrue(note.contains(configPath))
-            XCTAssertTrue(note.contains("keep other servers"))
-        }
+    func testTargetsAndMetadata() {
+        XCTAssertEqual(AgentMCPInstallTarget.allCases, [.cursor, .vscode, .vscodeInsiders, .claudeCode, .codex])
+        XCTAssertEqual(AgentMCPInstallTarget.allCases.map(\.label), ["cursor", "vscode", "vscode-insiders", "claude-code", "codex"])
+        XCTAssertEqual(AgentMCPInstallTarget.allCases.map(\.bundleIdentifier), ["com.todesktop.230313mzl4w4u92", "com.microsoft.VSCode", "com.microsoft.VSCodeInsiders", nil, nil])
+        XCTAssertEqual(AgentMCPInstallTarget.allCases.map(\.iconAssetName), ["AgentMCPCursor", "AgentMCPVSCode", "AgentMCPVSCode", "AgentMCPClaude", "AgentMCPCodex"])
     }
 }

@@ -17,7 +17,7 @@
 
 ## 构建与启用
 
-在 macOS App 中打开 **设置 → AI → MCP → 连接外部助手**，即可开启或关闭现有 MCP listener；默认关闭。同一区域的「复制 MCP 配置与提示词」提供 Cursor / Claude JSON 与 Codex TOML 片段。原生 App 将签名的 helper 内嵌在 `PaperRss.app/Contents/MacOS/paperrss-agent`。移动 App 后需重新复制配置；Release 缺少 helper 时提示重新安装，Debug 则可使用开发构建路径并提示构建。
+在 macOS App 中打开 **设置 → AI → MCP → 连接外部助手**，即可开启或关闭现有 MCP listener；默认关闭。「一键安装」提供 Cursor、VS Code、已安装的 VS Code Insiders、Claude Code 和 Codex CLI；其他助手可通过「复制配置」获取通用配置与提示词。关闭开关时两个区域置灰且不可操作。原生 App 将签名的 helper 内嵌在 `PaperRss.app/Contents/MacOS/paperrss-agent`。移动 App 后需重新复制配置；Release 缺少 helper 时提示重新安装，Debug 则可使用开发构建路径并提示构建。
 
 以下均在本 worktree 执行。构建本身不启动 App：
 
@@ -194,6 +194,15 @@ Bro 硬要求（UDS-only 非 fixture、enable gate listen/revoke、0700/0600+pee
 
 ## 常见客户端快速接入
 
-设置 → AI → MCP 提供 Cursor 安装链接；VS Code 和 VS Code Insiders 使用各自的 MCP 安装链接。Claude Code 与 Codex CLI 复制终端命令（Codex CLI、ChatGPT 桌面应用与 Codex IDE 扩展共享配置）。Claude Desktop、Windsurf / Devin Desktop 和 Gemini CLI 复制 JSON，按提示合并到各自配置并保留其他服务器。连接时需要开启「连接外部助手」并保持 PaperRss 运行。
+设置 → AI → MCP 提供 Cursor 安装链接；VS Code 和 VS Code Insiders 使用各自的 MCP 安装链接。Claude Code 与 Codex CLI 复制终端命令（Codex CLI、ChatGPT 桌面应用与 Codex IDE 扩展共享配置）。Claude Desktop、Windsurf / Devin Desktop 和 Gemini CLI 等其他客户端通过「复制配置」取得通用配置与提示词，按各自要求合并配置并保留其他服务器。连接时需要开启「连接外部助手」并保持 PaperRss 运行。
 
 格式参考：[Cursor](https://cursor.com/docs/context/mcp/install-links)、[VS Code](https://code.visualstudio.com/api/extension-guides/ai/mcp)、[Claude Code](https://code.claude.com/docs/en/mcp)、[Codex](https://developers.openai.com/codex/mcp)、[Claude Desktop / MCP](https://modelcontextprotocol.io/docs/develop/connect-local-servers)、[Devin Desktop](https://docs.devin.ai/desktop/cascade/mcp)、[Gemini CLI](https://geminicli.com/docs/tools/mcp-server/)。
+
+### Icon sources & licensing
+
+- Cursor：[官方品牌素材](https://cursor.com/brand)中的 Cursor App Icon 2D Light。
+- VS Code：[官方品牌素材](https://code.visualstudio.com/brand)中的图标，Microsoft 商标；Insiders 未找到应用图标时使用此素材。
+- Claude：[Anthropic 已验证的 Claude Code for VS Code 扩展](https://open-vsx.org/extension/Anthropic/claude-code) 2.1.312 中的 `claude-logo.png`，© Anthropic PBC。
+- Codex：[OpenAI 已验证的 Codex 扩展](https://open-vsx.org/extension/openai/chatgpt) 26.51021.22027 中的 `blossom.dark.png`；OpenAI 商标，按 [OpenAI 品牌指引](https://openai.com/brand/)用于标识集成。
+
+素材仅缩放，作为兼容性标识；带 bundle identifier 的目标优先通过 `NSWorkspace` 读取已安装应用的实际图标。
