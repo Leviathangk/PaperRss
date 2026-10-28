@@ -1,5 +1,7 @@
 import Foundation
+#if !PAPERRSS_AGENT_NATIVE
 import PaperRssAgentProtocol
+#endif
 
 /// Static tool descriptions never contain library data or publisher text.
 public enum AgentMCPTools {

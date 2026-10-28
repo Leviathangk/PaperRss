@@ -1,7 +1,11 @@
 import Foundation
 import Darwin
+#if !PAPERRSS_AGENT_NATIVE
 import PaperRssAgentProtocol
+#endif
+#if !PAPERRSS_AGENT_NATIVE
 import PaperRssAgentMCP
+#endif
 
 @main
 enum PaperRssAgentMain {

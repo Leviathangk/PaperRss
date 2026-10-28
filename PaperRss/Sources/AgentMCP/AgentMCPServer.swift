@@ -1,5 +1,7 @@
 import Foundation
+#if !PAPERRSS_AGENT_NATIVE
 import PaperRssAgentProtocol
+#endif
 
 /// Minimal newline-delimited JSON-RPC MCP server. There is no DB, network client,
 /// credential store, or automatic App launch in this target.

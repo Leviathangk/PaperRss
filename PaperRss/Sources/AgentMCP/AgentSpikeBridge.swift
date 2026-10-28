@@ -1,5 +1,7 @@
 import Foundation
+#if !PAPERRSS_AGENT_NATIVE
 import PaperRssAgentProtocol
+#endif
 
 /// Fail-closed stub used when no App transport is attached (unit tests / disabled path).
 /// Production non-fixture helpers use `AgentIPCClientBridge` over Unix domain socket IPC.

@@ -198,6 +198,9 @@ if [[ "$CMD" == "build" ]]; then
   EXPORT_OUT=$("$SPARKLE/export_and_notarize.sh" "${NOTARIZE_ARGS[@]}")
   STAPLED_APP=$(printf '%s\n' "$EXPORT_OUT" | tail -n1)
   [[ -d "$STAPLED_APP" ]] || fail "未取得 stapled App"
+  HELPER_PATH="$STAPLED_APP/Contents/MacOS/paperrss-agent"
+  [[ -x "$HELPER_PATH" ]] || fail "App 缺少可执行的 paperrss-agent"
+  codesign --verify --strict "$HELPER_PATH" || fail "paperrss-agent 签名验证失败"
 
   # [PASS 7] DMG + ZIP + EdDSA + manifest
   step "[PASS 7] 发布 DMG / Sparkle ZIP / EdDSA 签名 / manifest"

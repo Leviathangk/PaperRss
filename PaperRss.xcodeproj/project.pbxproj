@@ -12,11 +12,33 @@
 		A10000000000000000000042 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000041 /* Markdown */; };
 		A10000000000000000000043 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000041 /* Markdown */; };
 		A20000000000000000000001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A20000000000000000000051 /* Sparkle */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		A40000000000000000000200 /* AgentMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = A40000000000000000000100 /* AgentMain.swift */; };
+		A40000000000000000000201 /* AgentMCPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A40000000000000000000101 /* AgentMCPServer.swift */; };
+		A40000000000000000000202 /* AgentMCPTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = A40000000000000000000102 /* AgentMCPTools.swift */; };
+		A40000000000000000000203 /* AgentSpikeBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A40000000000000000000103 /* AgentSpikeBridge.swift */; };
+		A40000000000000000000204 /* AgentIPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = A40000000000000000000104 /* AgentIPC.swift */; };
+		A40000000000000000000205 /* AgentProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A40000000000000000000105 /* AgentProtocol.swift */; };
+		A40000000000000000000002 /* paperrss-agent in Embed Helper */ = {isa = PBXBuildFile; fileRef = A40000000000000000000001 /* paperrss-agent */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A40000000000000000000003 = {isa = PBXContainerItemProxy; containerPortal = A1000000000000000000000E /* Project object */; proxyType = 1; remoteGlobalIDString = A40000000000000000000005; remoteInfo = "paperrss-agent"; };
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A40000000000000000000004 /* Embed Helper */ = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = ""; dstSubfolderSpec = 6; files = (A40000000000000000000002 /* paperrss-agent in Embed Helper */, ); name = "Embed Helper"; runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		A10000000000000000000003 /* PaperRss.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PaperRss.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000004 /* PaperRss.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PaperRss.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A40000000000000000000100 /* AgentMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperRss/Sources/AgentHelper/AgentMain.swift; sourceTree = "<group>"; };
+		A40000000000000000000101 /* AgentMCPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperRss/Sources/AgentMCP/AgentMCPServer.swift; sourceTree = "<group>"; };
+		A40000000000000000000102 /* AgentMCPTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperRss/Sources/AgentMCP/AgentMCPTools.swift; sourceTree = "<group>"; };
+		A40000000000000000000103 /* AgentSpikeBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperRss/Sources/AgentMCP/AgentSpikeBridge.swift; sourceTree = "<group>"; };
+		A40000000000000000000104 /* AgentIPC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperRss/Sources/Core/AgentProtocol/AgentIPC.swift; sourceTree = "<group>"; };
+		A40000000000000000000105 /* AgentProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperRss/Sources/Core/AgentProtocol/AgentProtocol.swift; sourceTree = "<group>"; };
+		A40000000000000000000001 /* paperrss-agent */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "paperrss-agent"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -78,6 +100,7 @@
 			children = (
 				A10000000000000000000003 /* PaperRss.app */,
 				A10000000000000000000004 /* PaperRss.app */,
+				A40000000000000000000001 /* paperrss-agent */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -86,10 +109,19 @@
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000001 /* PaperRss */,
+				A40000000000000000000008 /* Helper Sources */,
 				A10000000000000000000002 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
+		A40000000000000000000008 /* Helper Sources */ = {isa = PBXGroup; children = (
+				A40000000000000000000100 /* AgentMain.swift */,
+				A40000000000000000000101 /* AgentMCPServer.swift */,
+				A40000000000000000000102 /* AgentMCPTools.swift */,
+				A40000000000000000000103 /* AgentSpikeBridge.swift */,
+				A40000000000000000000104 /* AgentIPC.swift */,
+				A40000000000000000000105 /* AgentProtocol.swift */,
+			); name = "Helper Sources"; sourceTree = "<group>"; };
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -100,10 +132,12 @@
 				A10000000000000000000007 /* Sources */,
 				A10000000000000000000006 /* Frameworks */,
 				A10000000000000000000008 /* Resources */,
+				A40000000000000000000004 /* Embed Helper */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				A40000000000000000000009 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				A10000000000000000000001 /* PaperRss */,
@@ -141,6 +175,17 @@
 			productName = PaperRss;
 			productReference = A10000000000000000000004 /* PaperRss.app */;
 			productType = "com.apple.product-type.application";
+		};
+		A40000000000000000000005 /* paperrss-agent */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A40000000000000000000006;
+			buildPhases = (A40000000000000000000007 /* Sources */, );
+			buildRules = ();
+			dependencies = ();
+			name = "paperrss-agent";
+			productName = "paperrss-agent";
+			productReference = A40000000000000000000001 /* paperrss-agent */;
+			productType = "com.apple.product-type.tool";
 		};
 /* End PBXNativeTarget section */
 
@@ -184,6 +229,7 @@
 			targets = (
 				A1000000000000000000000C /* PaperRss */,
 				A1000000000000000000000D /* PaperRss iOS */,
+				A40000000000000000000005 /* paperrss-agent */,
 			);
 		};
 /* End PBXProject section */
@@ -220,7 +266,19 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A40000000000000000000007 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
+				A40000000000000000000200 /* AgentMain.swift in Sources */,
+				A40000000000000000000201 /* AgentMCPServer.swift in Sources */,
+				A40000000000000000000202 /* AgentMCPTools.swift in Sources */,
+				A40000000000000000000203 /* AgentSpikeBridge.swift in Sources */,
+				A40000000000000000000204 /* AgentIPC.swift in Sources */,
+				A40000000000000000000205 /* AgentProtocol.swift in Sources */,
+			); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A40000000000000000000009 /* PBXTargetDependency */ = {isa = PBXTargetDependency; target = A40000000000000000000005 /* paperrss-agent */; targetProxy = A40000000000000000000003; };
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A30000000000000000000010 /* Debug-iCloud */ = {
@@ -416,6 +474,42 @@
 			};
 			name = Release;
 		};
+		A40000000000000000000010 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {
+                CODE_SIGN_STYLE = Automatic;
+                "CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+                DEVELOPMENT_TEAM = LGKLTGNTY2;
+                ENABLE_HARDENED_RUNTIME = YES;
+                MACOSX_DEPLOYMENT_TARGET = 14.0;
+                PRODUCT_NAME = "paperrss-agent";
+                SDKROOT = macosx;
+                SKIP_INSTALL = YES;
+                SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG PAPERRSS_AGENT_NATIVE";
+                SWIFT_STRICT_CONCURRENCY = complete;
+            }; name = "Debug"; };
+		A40000000000000000000011 /* Debug-iCloud */ = {isa = XCBuildConfiguration; buildSettings = {
+                CODE_SIGN_STYLE = Automatic;
+                "CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+                DEVELOPMENT_TEAM = LGKLTGNTY2;
+                ENABLE_HARDENED_RUNTIME = YES;
+                MACOSX_DEPLOYMENT_TARGET = 14.0;
+                PRODUCT_NAME = "paperrss-agent";
+                SDKROOT = macosx;
+                SKIP_INSTALL = YES;
+                SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG PAPERRSS_AGENT_NATIVE";
+                SWIFT_STRICT_CONCURRENCY = complete;
+            }; name = "Debug-iCloud"; };
+		A40000000000000000000012 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {
+                CODE_SIGN_STYLE = Automatic;
+                "CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+                DEVELOPMENT_TEAM = LGKLTGNTY2;
+                ENABLE_HARDENED_RUNTIME = YES;
+                MACOSX_DEPLOYMENT_TARGET = 14.0;
+                PRODUCT_NAME = "paperrss-agent";
+                SDKROOT = macosx;
+                SKIP_INSTALL = YES;
+                SWIFT_ACTIVE_COMPILATION_CONDITIONS = PAPERRSS_AGENT_NATIVE;
+                SWIFT_STRICT_CONCURRENCY = complete;
+            }; name = "Release"; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -448,6 +542,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		A40000000000000000000006 = {isa = XCConfigurationList; buildConfigurations = (A40000000000000000000010, A40000000000000000000011, A40000000000000000000012, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
