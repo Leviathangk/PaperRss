@@ -145,14 +145,14 @@ final class AgentApprovalCenter: ObservableObject {
     #if os(macOS)
     private func presentPanel() {
         if panel == nil {
-            let window = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 480, height: 520),
+            let window = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 440, height: 340),
                 styleMask: [.titled, .closable, .resizable, .nonactivatingPanel], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.isFloatingPanel = true
             window.hidesOnDeactivate = false
             window.level = .floating
-            window.contentView = NSHostingView(rootView: AgentApprovalList(center: self).padding(20)
-                .frame(minWidth: 400, minHeight: 240).accessibilityIdentifier("agent.approval.panel"))
+            window.contentView = NSHostingView(rootView: AgentApprovalList(center: self)
+                .frame(minWidth: 400, minHeight: 200).accessibilityIdentifier("agent.approval.panel"))
             window.center()
             panel = window
         }
@@ -161,6 +161,20 @@ final class AgentApprovalCenter: ObservableObject {
         NSApp.requestUserAttention(.informationalRequest)
     }
     #endif
+
+    fileprivate func fitPanel(to contentHeight: CGFloat) {
+        #if os(macOS)
+        guard let panel, !pending.isEmpty, contentHeight > 0 else { return }
+        let availableHeight = (panel.screen?.visibleFrame.height ?? 800) - 100
+        let height = min(max(200, contentHeight), min(560, availableHeight))
+        let size = panel.frameRect(forContentRect: NSRect(x: 0, y: 0,
+            width: panel.contentLayoutRect.width, height: height)).size
+        guard abs(panel.frame.height - size.height) > 1 else { return }
+        // Keep the top edge stable as requests arrive, expire, or change language.
+        panel.setFrame(NSRect(x: panel.frame.minX, y: panel.frame.maxY - size.height,
+            width: size.width, height: size.height), display: true)
+        #endif
+    }
 
     fileprivate func updatePanelTitle() {
         #if os(macOS)
@@ -175,22 +189,28 @@ struct AgentApprovalList: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 12) {
                 ForEach(center.pending) { request in
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(verbatim: source(request.clientLabel)).font(.headline)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(verbatim: source(request.clientLabel)).font(.subheadline).foregroundStyle(.secondary)
                         Text(verbatim: clipped(request.accountName, limit: 120) + " · " + clipped(request.accountType, limit: 40))
                             .font(.caption).foregroundStyle(.secondary)
-                        Text(verbatim: actionTitle(request.actionKind)).font(.subheadline).bold()
+                        Text(verbatim: actionTitle(request.actionKind)).font(.headline)
                         Text(verbatim: clipped(i18n.localized(request.summary, request.summaryEnglish ?? request.summary), limit: 600))
                             .fixedSize(horizontal: false, vertical: true)
-                        Text(verbatim: i18n.localized("影响 \(request.affectedCount) 篇文章", "Affects \(request.affectedCount) articles"))
-                            .font(.caption)
-                        ForEach(Array(request.sampleTitles.prefix(5).enumerated()), id: \.offset) { _, title in
-                            Text(verbatim: clipped(title, limit: 160)).font(.caption).lineLimit(2)
+                        if request.affectedCount > 0 || !request.sampleTitles.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(verbatim: i18n.localized("影响 \(request.affectedCount) 篇文章", "Affects \(request.affectedCount) articles"))
+                                    .font(.caption).fontWeight(.medium)
+                                ForEach(Array(request.sampleTitles.prefix(3).enumerated()), id: \.offset) { _, title in
+                                    Text(verbatim: "• " + clipped(title, limit: 160))
+                                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                            }
                         }
                         Text(verbatim: request.warning)
                             .font(.caption).foregroundStyle(request.isDestructive ? Color.red : Color.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                             .accessibilityIdentifier("agent.approval.warning.\(request.planID)")
                         Text(i18n.localized("到期时间：", "Expires: ") + request.expiresAt.formatted(date: .omitted, time: .standard))
                             .font(.caption).foregroundStyle(.secondary)
@@ -198,21 +218,30 @@ struct AgentApprovalList: View {
                             Text(i18n.localized("操作未完成，请重试或等待请求到期。", "Could not complete the decision. Retry or wait for expiry."))
                                 .font(.caption).foregroundStyle(.red)
                         }
-                        HStack {
+                        HStack(spacing: 8) {
                             Spacer()
                             Button(i18n.localized("拒绝", "Deny")) { Task { await center.deny(request) } }
+                                .buttonStyle(.bordered)
                                 .accessibilityIdentifier("agent.approval.deny.\(request.planID)")
                             Button(i18n.localized("批准", "Approve")) { Task { await center.approve(request) } }
                                 .buttonStyle(.borderedProminent)
+                                .tint(request.isDestructive ? Color.red : Color.accentColor)
                                 .accessibilityIdentifier("agent.approval.approve.\(request.planID)")
                             // Deliberately no defaultAction / Return keyboard shortcut.
                         }
                         .disabled(center.busy.contains(request.id))
                     }
-                    Divider()
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
                 }
             }
+            .padding(16)
+            .background(GeometryReader { geometry in
+                Color.clear.preference(key: AgentApprovalContentHeight.self, value: geometry.size.height)
+            })
         }
+        .onPreferenceChange(AgentApprovalContentHeight.self) { center.fitPanel(to: $0) }
         .onChange(of: i18n.isEnglish) { center.updatePanelTitle() }
     }
 
@@ -237,5 +266,12 @@ struct AgentApprovalList: View {
         let plain = value.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }
         let text = String(String.UnicodeScalarView(plain.prefix(limit)))
         return plain.count > limit ? text + "…" : text
+    }
+}
+
+private struct AgentApprovalContentHeight: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }

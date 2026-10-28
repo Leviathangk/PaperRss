@@ -95,3 +95,28 @@ extension AgentApprovalCenterTests {
         center.removeAll()
     }
 }
+
+extension AgentApprovalCenterTests {
+    func testPanelKeepsExplicitConsentAndNativeButtonStyles() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let source = try String(contentsOf: root.appendingPathComponent("PaperRss/Sources/App/AgentApprovalCenter.swift"), encoding: .utf8)
+        let code = source.components(separatedBy: "\n")
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        XCTAssertFalse(code.contains("keyboardShortcut"), "Approval must require an explicit button click")
+        XCTAssertFalse(code.contains("defaultAction"))
+        let deny = try XCTUnwrap(code.range(of: "Button(i18n.localized(\"拒绝\", \"Deny\"))"))
+        let approve = try XCTUnwrap(code.range(of: "Button(i18n.localized(\"批准\", \"Approve\"))"))
+        XCTAssertTrue(code[deny.lowerBound..<approve.lowerBound].contains(".buttonStyle(.bordered)"))
+        XCTAssertTrue(code[approve.lowerBound...].contains(".buttonStyle(.borderedProminent)"))
+        XCTAssertTrue(code[approve.lowerBound...].contains(".tint(request.isDestructive ? Color.red : Color.accentColor)"))
+        XCTAssertTrue(code.contains("width: 440, height: 340"))
+        XCTAssertTrue(code.contains(".nonactivatingPanel"))
+        XCTAssertTrue(code.contains("window.isFloatingPanel = true"))
+        XCTAssertTrue(code.contains("panel?.orderFrontRegardless()"))
+        XCTAssertTrue(code.contains("NSApp.requestUserAttention(.informationalRequest)"))
+        for identifier in ["panel", "deny.", "approve.", "warning."] {
+            XCTAssertTrue(code.contains("agent.approval." + identifier))
+        }
+    }
+}

@@ -43,7 +43,8 @@ final class AgentIPCIntegrationTests: XCTestCase {
                 }
             }
             controller = AgentBridgeController(defaults: defaults,
-                directory: directory.appendingPathComponent("ipc"), launchArguments: launchArguments)
+                directory: directory.appendingPathComponent("ipc"),
+                approvalCenter: AgentApprovalCenter(showPanel: false), launchArguments: launchArguments)
         }
 
         func client(enabled: Bool = true) -> AgentIPCClientBridge {
