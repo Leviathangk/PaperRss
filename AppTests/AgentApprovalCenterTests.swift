@@ -105,6 +105,11 @@ extension AgentApprovalCenterTests {
             .joined(separator: "\n")
         XCTAssertFalse(code.contains("keyboardShortcut"), "Approval must require an explicit button click")
         XCTAssertFalse(code.contains("defaultAction"))
+        let listStart = try XCTUnwrap(code.range(of: "struct AgentApprovalList: View"))
+        let listCode = code[listStart.lowerBound...]
+        for expiryCopy in ["到期时间", "Expires:", "到期", "expiry", "expiresAt"] {
+            XCTAssertFalse(listCode.contains(expiryCopy), "Approval UI must not expose expiry: \(expiryCopy)")
+        }
         let deny = try XCTUnwrap(code.range(of: "Button(i18n.localized(\"拒绝\", \"Deny\"))"))
         let approve = try XCTUnwrap(code.range(of: "Button(i18n.localized(\"批准\", \"Approve\"))"))
         XCTAssertTrue(code[deny.lowerBound..<approve.lowerBound].contains(".buttonStyle(.bordered)"))

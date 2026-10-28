@@ -196,32 +196,24 @@ struct AgentApprovalList: View {
             VStack(alignment: .leading, spacing: 12) {
                 ForEach(center.pending) { request in
                     VStack(alignment: .leading, spacing: 10) {
-                        Text(verbatim: source(request.clientLabel)).font(.subheadline).foregroundStyle(.secondary)
+                        Text(verbatim: source(request.clientLabel)).font(.system(size: 13)).foregroundStyle(.secondary)
                         Text(verbatim: actionTitle(request.actionKind))
-                            .font(.system(size: 20, weight: .semibold))
+                            .font(.system(size: 18, weight: .semibold))
                         Text(verbatim: clipped(request.accountName, limit: 120) + " · " + clipped(request.accountType, limit: 40))
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.system(size: 13)).foregroundStyle(.secondary)
                         feedPreview(request)
                         Text(verbatim: shortSummary(request))
-                            .font(.subheadline)
+                            .font(.system(size: 13))
                             .fixedSize(horizontal: false, vertical: true)
-                        if request.affectedCount > 0 {
-                            Text(verbatim: i18n.localized("影响 \(request.affectedCount) 篇", "Affects \(request.affectedCount) articles"))
-                                .font(.caption.weight(.medium))
-                                .padding(.horizontal, 9).padding(.vertical, 5)
-                                .background(.quaternary, in: Capsule())
-                        }
                         if request.isDestructive {
                             Text(verbatim: request.warning)
-                                .font(.caption).foregroundStyle(.red)
+                                .font(.system(size: 13)).foregroundStyle(.red)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .accessibilityIdentifier("agent.approval.warning.\(request.planID)")
                         }
-                        Text(i18n.localized("到期时间：", "Expires: ") + request.expiresAt.formatted(date: .omitted, time: .standard))
-                            .font(.caption).foregroundStyle(.secondary)
                         if center.failed.contains(request.id) {
-                            Text(i18n.localized("操作未完成，请重试或等待请求到期。", "Could not complete the decision. Retry or wait for expiry."))
-                                .font(.caption).foregroundStyle(.red)
+                            Text(i18n.localized("操作未完成，请重试。", "Could not complete the decision. Please retry."))
+                                .font(.system(size: 13)).foregroundStyle(.red)
                         }
                         HStack(spacing: 8) {
                             Spacer()
@@ -270,15 +262,31 @@ struct AgentApprovalList: View {
                 }
                 if request.affectedFeeds.count > 7 {
                     Text(verbatim: "+\(request.affectedFeeds.count - 7)")
-                        .font(.caption.weight(.medium))
+                        .font(.system(size: 13, weight: .medium))
                         .padding(.horizontal, 6).padding(.vertical, 3)
                         .background(.quaternary, in: Capsule())
                         .help(request.affectedFeeds.dropFirst(7).map(\.title).joined(separator: "\n"))
                 }
+                Spacer(minLength: 8)
+                impactCapsule(request)
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+        } else {
+            impactCapsule(request)
+        }
+    }
+
+    @ViewBuilder
+    private func impactCapsule(_ request: AgentApprovalCenter.Request) -> some View {
+        if request.affectedCount > 0 {
+            Text(verbatim: i18n.localized("影响 \(request.affectedCount) 篇", "Affects \(request.affectedCount) articles"))
+                .font(.system(size: 13, weight: .medium))
+                .fixedSize(horizontal: false, vertical: true)
+                .layoutPriority(1)
+                .padding(.horizontal, 9).padding(.vertical, 5)
+                .background(.quaternary, in: Capsule())
         }
     }
 
