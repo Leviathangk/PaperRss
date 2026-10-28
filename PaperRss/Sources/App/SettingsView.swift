@@ -3069,21 +3069,42 @@ struct SettingsView: View {
                                 "Ask requires approval; Auto applies state changes automatically; Full applies all plans automatically."))
                                 .font(.caption).foregroundStyle(.secondary)
                         }
+                        HStack(alignment: .top, spacing: 12) {
+                            Text(I18N.shared.localized("工具", "Tool"))
+                                .frame(width: 180, alignment: .leading)
+                            Text(I18N.shared.localized("说明", "Description"))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Text(I18N.shared.localized("用法", "Usage"))
+                                .frame(width: 220, alignment: .leading)
+                        }
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
                         ForEach(AgentMCPToolCatalog.entries.filter { $0.group == group }) { entry in
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(entry.name).font(.system(size: 13, weight: .medium, design: .monospaced))
+                            Divider().opacity(0.18)
+                            HStack(alignment: .top, spacing: 12) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(entry.name)
+                                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                        .lineLimit(1)
+                                        .help(entry.name)
+                                    if !entry.aliases.isEmpty {
+                                        Text(I18N.shared.localized("兼容别名：", "Compatibility aliases: ") + entry.aliases.joined(separator: ", "))
+                                            .font(.caption2).foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }
+                                .frame(width: 180, alignment: .leading)
                                 Text(I18N.shared.localized(entry.zhSummary, entry.enSummary))
                                     .font(.system(size: 12)).foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                                 ScrollView(.horizontal) {
                                     Text(entry.example)
                                         .font(.system(size: 11, design: .monospaced))
                                         .foregroundStyle(.secondary)
-                                        .fixedSize(horizontal: true, vertical: false)
+                                        .fixedSize(horizontal: true, vertical: true)
                                 }
-                                if !entry.aliases.isEmpty {
-                                    Text(I18N.shared.localized("兼容别名：", "Compatibility aliases: ") + entry.aliases.joined(separator: ", "))
-                                        .font(.caption).foregroundStyle(.secondary)
-                                }
+                                .frame(width: 220, alignment: .leading)
                             }
                             .textSelection(.enabled)
                             .accessibilityElement(children: .combine)

@@ -18,8 +18,10 @@ final class AgentMCPTests: XCTestCase {
         for entry in entries {
             XCTAssertFalse(entry.zhSummary.isEmpty, entry.name)
             XCTAssertFalse(entry.enSummary.isEmpty, entry.name)
-            XCTAssertTrue(entry.example.hasPrefix(entry.name + "("), entry.name)
-            XCTAssertFalse(entry.example.contains("\n"), entry.name)
+            XCTAssertTrue(entry.example.hasPrefix(entry.name + "\n{\n"), entry.name)
+            XCTAssertTrue(entry.exampleArgs.contains("\n  \""), entry.name)
+            let arguments = try JSONDecoder().decode(AgentJSON.self, from: Data(entry.exampleArgs.utf8))
+            XCTAssertNotNil(arguments.objectValue, entry.name)
             let definition = try XCTUnwrap(AgentMCPTools.definitions.first { $0["name"]?.stringValue == entry.name })
             for alias in entry.aliases {
                 let aliasDefinition = try XCTUnwrap(AgentMCPTools.definitions.first { $0["name"]?.stringValue == alias })
