@@ -63,3 +63,91 @@ public enum AgentToolCatalog {
                                "plan_state_change", "plan_mark_read", "apply_plan", "apply_state_change", "plan_add_feed", "plan_rename_feed", "plan_remove_feed", "add_feed", "rename_feed", "remove_feed"]
         .map { "paperrss_" + $0 }
 }
+
+
+/// User-facing MCP catalog shared by Settings and the tool-definition contract tests.
+/// Aliases stay on their primary row so the catalog covers the wire API without duplicate rows.
+public enum AgentMCPToolCatalog {
+    public enum Group: String, CaseIterable, Sendable {
+        case readOnly, approvalGated, unavailable
+
+        public var zhTitle: String {
+            switch self {
+            case .readOnly: "只读"
+            case .approvalGated: "需审批写入"
+            case .unavailable: "暂不可用"
+            }
+        }
+
+        public var enTitle: String {
+            switch self {
+            case .readOnly: "Read-only"
+            case .approvalGated: "Approval-gated writes"
+            case .unavailable: "Temporarily unavailable"
+            }
+        }
+    }
+
+    public struct Entry: Identifiable, Sendable {
+        public let name: String
+        public let group: Group
+        public let zhSummary: String
+        public let enSummary: String
+        public let example: String
+        public let aliases: [String]
+        public var id: String { name }
+
+        init(_ name: String, _ group: Group, _ zh: String, _ en: String,
+             _ example: String, aliases: [String] = []) {
+            self.name = "paperrss_" + name
+            self.group = group
+            zhSummary = zh
+            enSummary = en
+            self.example = example
+            self.aliases = aliases.map { "paperrss_" + $0 }
+        }
+    }
+
+    public static let entries: [Entry] = [
+        Entry("status", .readOnly, "查看账号、审批模式与待批准项；可查询计划状态。",
+              "View accounts, approval mode and pending approvals; check a plan's status.",
+              #"paperrss_status(plan_id: "plan-id")"#),
+        Entry("open", .readOnly, "在 App 中定位文章或订阅，不自动标为已读。",
+              "Locate an article or feed in the App without marking it read.",
+              #"paperrss_open(account_id: "account-id", article_id: "article-id")"#),
+        Entry("list_feeds", .readOnly, "分页查看账号内的订阅源与计数。",
+              "List a page of feeds and counts in an account.",
+              #"paperrss_list_feeds(account_id: "account-id", limit: 20)"#),
+        Entry("list_articles", .readOnly, "查看未读、收藏或已授权选择的文章元数据，不抓取正文。",
+              "List unread, starred or selected article metadata without fetching content.",
+              #"paperrss_list_articles(account_id: "account-id", scope: "unread")"#),
+        Entry("get_article", .readOnly, "查看文章元数据与本地正文可用性，不返回正文。",
+              "Get article metadata and stored-content availability, without the body.",
+              #"paperrss_get_article(account_id: "account-id", article_id: "article-id")"#),
+        Entry("plan_state_change", .approvalGated, "计划更改指定文章的已读或收藏状态；批准后 App 立即执行。",
+              "Plan read or starred changes for exact articles; the App applies on approval.",
+              #"paperrss_plan_state_change(account_id: "account-id", article_ids: ["article-id"], field: "starred", value: true)"#),
+        Entry("plan_mark_read", .approvalGated, "计划将订阅、文件夹或账号的未读文章标为已读；批准后立即执行。",
+              "Plan marking unread articles in a feed, folder or account as read; applies on approval.",
+              #"paperrss_plan_mark_read(account_id: "account-id", scope: "feed", feed_id: "feed-id")"#),
+        Entry("apply_plan", .approvalGated, "仅用于已批准计划的补偿重试或回执重放；不能代替用户批准。",
+              "Recovery retry or receipt replay for approved plans only; cannot grant approval.",
+              #"paperrss_apply_plan(plan_id: "plan-id", approval_id: "app-issued-id", idempotency_key: "retry-key")"#,
+              aliases: ["apply_state_change"]),
+        Entry("plan_add_feed", .approvalGated, "计划添加订阅源；按审批模式执行。",
+              "Plan adding a feed under the current approval mode.",
+              #"paperrss_plan_add_feed(account_id: "account-id", url: "https://example.org/feed.xml")"#,
+              aliases: ["add_feed"]),
+        Entry("plan_rename_feed", .approvalGated, "计划重命名订阅源；按审批模式执行。",
+              "Plan renaming a feed under the current approval mode.",
+              #"paperrss_plan_rename_feed(account_id: "account-id", feed_id: "feed-id", title: "News")"#,
+              aliases: ["rename_feed"]),
+        Entry("plan_remove_feed", .approvalGated, "计划删除订阅及历史文章（含收藏），不可撤销。",
+              "Plan deleting a feed and its history, including starred articles; no undo.",
+              #"paperrss_plan_remove_feed(account_id: "account-id", feed_id: "feed-id")"#,
+              aliases: ["remove_feed"]),
+        Entry("get_content", .unavailable, "需用户在 PaperRss 内授权正文选择；授权前助手通常无法使用。",
+              "Requires content selection granted by the user in PaperRss; assistants generally cannot use it before that.",
+              #"paperrss_get_content(account_id: "account-id", article_id: "article-id", selection_id: "app-issued-selection")"#)
+    ]
+}

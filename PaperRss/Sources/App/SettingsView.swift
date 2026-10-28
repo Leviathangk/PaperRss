@@ -10,6 +10,7 @@ import PaperRssCore
 #if os(macOS)
 #if SWIFT_PACKAGE
 import PaperRssUpdateSupport
+import PaperRssAgentProtocol
 #endif
 #endif
 
@@ -1396,16 +1397,41 @@ struct SettingsView: View {
             Text("AI")
                 .font(.system(size: 26, weight: .bold))
             HStack {
-                Picker(I18N.shared.localized("AI 设置页面", "AI settings page"), selection: $selectedAISettingsPane) {
-                    ForEach(AISettingsPane.allCases) { pane in Text(pane.title).tag(pane) }
+                HStack(spacing: 2) {
+                    ForEach(AISettingsPane.allCases) { pane in
+                        Button {
+                            selectedAISettingsPane = pane
+                        } label: {
+                            HStack(spacing: 5) {
+                                Text(pane.title)
+                                #if os(macOS)
+                                if pane == .mcp { BetaBadge() }
+                                #endif
+                            }
+                            .font(.system(size: 13, weight: selectedAISettingsPane == pane ? .semibold : .regular))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 5)
+                            .background {
+                                if selectedAISettingsPane == pane {
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(Color.primary.opacity(0.09))
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("settings.aiPane.\(pane.rawValue)")
+                        .accessibilityAddTraits(selectedAISettingsPane == pane ? .isSelected : [])
+                        #if os(macOS)
+                        .focused($firstContentSection, equals: .aiService)
+                        #endif
+                    }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                .padding(3)
+                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
                 .fixedSize()
-                #if os(macOS)
-                .focusable()
-                .focused($firstContentSection, equals: .aiService)
-                #endif
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(I18N.shared.localized("AI 设置页面", "AI settings page"))
                 Spacer(minLength: 0)
             }
 
@@ -3025,8 +3051,58 @@ struct SettingsView: View {
             .disabled(!agentMCPEnabled)
             .opacity(agentMCPEnabled ? 1 : 0.45)
             .saturation(agentMCPEnabled ? 1 : 0)
+
+            agentMCPToolCatalog
         }
     }
+
+    private var agentMCPToolCatalog: some View {
+        settingsGroup(I18N.shared.localized("当前工具", "Available Tools")) {
+            VStack(alignment: .leading, spacing: 16) {
+                ForEach(AgentMCPToolCatalog.Group.allCases, id: \.self) { group in
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(I18N.shared.localized(group.zhTitle, group.enTitle))
+                            .font(.system(size: 13, weight: .semibold))
+                        if group == .approvalGated {
+                            Text(I18N.shared.localized(
+                                "Ask 需批准；Auto 自动执行状态更改；Full 自动执行全部计划。",
+                                "Ask requires approval; Auto applies state changes automatically; Full applies all plans automatically."))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        ForEach(AgentMCPToolCatalog.entries.filter { $0.group == group }) { entry in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(entry.name).font(.system(size: 13, weight: .medium, design: .monospaced))
+                                Text(I18N.shared.localized(entry.zhSummary, entry.enSummary))
+                                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                                ScrollView(.horizontal) {
+                                    Text(entry.example)
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: true, vertical: false)
+                                }
+                                if !entry.aliases.isEmpty {
+                                    Text(I18N.shared.localized("兼容别名：", "Compatibility aliases: ") + entry.aliases.joined(separator: ", "))
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            .textSelection(.enabled)
+                            .accessibilityElement(children: .combine)
+                            .accessibilityIdentifier("settings.mcpTool.\(entry.name)")
+                        }
+                    }
+                }
+                Divider().opacity(0.18)
+                Text(I18N.shared.localized(
+                    "提示词：digest、feeds、mark_feed_read、open。资源：paperrss://status、paperrss://feeds、paperrss://unread/today、paperrss://feed/{id}/unread。",
+                    "Prompts: digest, feeds, mark_feed_read, open. Resources: paperrss://status, paperrss://feeds, paperrss://unread/today, paperrss://feed/{id}/unread."))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+            .padding(SettingsMetrics.rowHorizontalPadding)
+        }
+        .accessibilityIdentifier("settings.agentMCPToolCatalog")
+    }
+
     private func agentMCPInstallRow(_ target: AgentMCPInstallTarget) -> some View {
         let path = AgentMCPConnectCopy.helperPath()
         let url = path.flatMap { target.url(path: $0) }

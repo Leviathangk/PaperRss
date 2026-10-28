@@ -5,6 +5,29 @@ import PaperRssAgentMCP
 
 @MainActor
 final class AgentMCPTests: XCTestCase {
+    func testSettingsCatalogCoversEveryDefinitionAndAliasExactlyOnce() throws {
+        let entries = AgentMCPToolCatalog.entries
+        let catalogNames = entries.flatMap { [$0.name] + $0.aliases }
+        let definitionNames = try AgentMCPTools.definitions.map {
+            try XCTUnwrap($0["name"]?.stringValue)
+        }
+        XCTAssertEqual(Set(catalogNames), Set(definitionNames))
+        XCTAssertEqual(catalogNames.count, Set(catalogNames).count, "Duplicate catalog tool or alias")
+        XCTAssertEqual(Set(entries.map(\.group)), Set(AgentMCPToolCatalog.Group.allCases))
+        XCTAssertEqual(entries.filter { $0.group == .unavailable }.map(\.name), ["paperrss_get_content"])
+        for entry in entries {
+            XCTAssertFalse(entry.zhSummary.isEmpty, entry.name)
+            XCTAssertFalse(entry.enSummary.isEmpty, entry.name)
+            XCTAssertTrue(entry.example.hasPrefix(entry.name + "("), entry.name)
+            XCTAssertFalse(entry.example.contains("\n"), entry.name)
+            let definition = try XCTUnwrap(AgentMCPTools.definitions.first { $0["name"]?.stringValue == entry.name })
+            for alias in entry.aliases {
+                let aliasDefinition = try XCTUnwrap(AgentMCPTools.definitions.first { $0["name"]?.stringValue == alias })
+                XCTAssertEqual(aliasDefinition["inputSchema"], definition["inputSchema"], alias)
+            }
+        }
+    }
+
     private func request(_ method: String, id: Int = 1, params: [String: AgentJSON] = [:]) -> AgentJSON {
         .object(["jsonrpc": .string("2.0"), "id": .number(Double(id)), "method": .string(method), "params": .object(params)])
     }
