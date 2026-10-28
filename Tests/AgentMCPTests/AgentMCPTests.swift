@@ -117,6 +117,10 @@ final class AgentMCPTests: XCTestCase {
         }
         let calls = await bridge.calls
         XCTAssertEqual(calls, ["paperrss_status", "paperrss_list_articles", "paperrss_list_articles"])
+        let single = await server.handle(request("resources/read", params: ["uri": .string("paperrss://feed/only-a/unread")]))
+        let singleText = try XCTUnwrap(single?["result"]?["contents"]?.arrayValue?.first?["text"]?.stringValue)
+        let singlePayload = try JSONDecoder().decode(AgentJSON.self, from: Data(singleText.utf8))
+        XCTAssertEqual(singlePayload["data"]?["pages"]?.arrayValue?.map { $0["account_id"] }, [.string("a")])
         await bridge.setFailure()
         let limited = await server.handle(request("resources/read", params: ["uri": .string("paperrss://feeds")]))
         XCTAssertTrue(limited?["error"]?["message"]?.stringValue?.contains("CONTENT_BUDGET_EXCEEDED") == true)
@@ -407,7 +411,12 @@ private actor ResourceBridge: AgentBridge {
     func call(tool: String, arguments: [String: AgentJSON]) async throws -> AgentJSON {
         calls.append(tool)
         if tool == "paperrss_status" {
-            return .object(["enabled": .bool(true), "accounts": .array(["a", "b"].map { .object(["account_id": .string($0)]) })])
+            // "c" is a disabled account: listed by status but outside the session, so resources must skip it.
+            return .object(["enabled": .bool(true), "accounts": .array(["a", "b"].map { .object(["account_id": .string($0)]) }
+                + [.object(["account_id": .string("c"), "enabled": .bool(false)])])])
+        }
+        if tool == "paperrss_list_articles", arguments["account_id"] == .string("b"), arguments["feed_id"] == .string("only-a") {
+            throw AgentFailure("NOT_FOUND", "Feed not found.")
         }
         if fail { throw AgentFailure("CONTENT_BUDGET_EXCEEDED", "Budget exhausted.") }
         return .object(["articles": .array([]), "next_cursor": .string("next")])

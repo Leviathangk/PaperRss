@@ -274,7 +274,10 @@ private extension AgentMCPServer {
         if uri == "paperrss://status" { data = status }
         else {
             guard status["enabled"] == .bool(true) else { throw AgentFailure("NOT_ENABLED", "Local Agent access is disabled.") }
-            let accounts = status["accounts"]?.arrayValue?.compactMap { $0["account_id"]?.stringValue } ?? []
+            // Disabled accounts are listed by status but are outside the session; skip them.
+            let accounts = status["accounts"]?.arrayValue?.compactMap {
+                $0["enabled"] == .bool(false) ? nil : $0["account_id"]?.stringValue
+            } ?? []
             // Keep each resource read bounded. Return tool arguments and cursors for explicit continuation.
             guard accounts.count <= 20 else { throw AgentFailure("RATE_LIMITED", "Use per-account tools for more than 20 accounts.") }
             var pages: [AgentJSON] = []
@@ -287,9 +290,14 @@ private extension AgentMCPServer {
                     args["since"] = .string(ISO8601DateFormatter().string(from: Calendar.current.startOfDay(for: Date())))
                 } else if uri.hasPrefix("paperrss://feed/"), let feed = resourceKind(uri) { args["feed_id"] = .string(feed) }
                 try AgentMCPTools.validate(name: tool, arguments: args)
-                let page = try await bridge.call(tool: tool, arguments: args)
+                let page: AgentJSON
+                do { page = try await bridge.call(tool: tool, arguments: args) }
+                catch let failure as AgentFailure where args["feed_id"] != nil && ["NOT_FOUND", "UNAUTHORIZED"].contains(failure.code) {
+                    continue // A feed belongs to exactly one account.
+                }
                 pages.append(.object(["account_id": .string(account), "tool": .string(tool), "arguments": .object(args), "data": page]))
             }
+            if uri.hasPrefix("paperrss://feed/"), pages.isEmpty { throw AgentFailure("NOT_FOUND", "Feed not found in an authorized account.") }
             data = .object(["pages": .array(pages), "bounded": .bool(true),
                 "continuation": .string("For each non-null next_cursor, call its tool with these arguments plus cursor. Resource reads return one page per account.")])
         }

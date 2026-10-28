@@ -223,7 +223,7 @@ final class AgentBridgeController: AgentBridge {
                 fields["capabilities"] = .array(capabilities)
                 return .object(fields)
             })
-            status["capabilities"] = .array(Self.capabilities(canOpen: opener != nil).map(AgentJSON.string))
+            status["capabilities"] = .array((Self.capabilities(canOpen: opener != nil) + (feedWriteAction != nil ? ["feeds.manage.approval"] : [])).map(AgentJSON.string))
             status["tools"] = .array(AgentToolCatalog.names.map(AgentJSON.string))
             status["transport"] = .string(sessionID == "app" ? "in_process" : "unix_socket")
             status["paired"] = .bool(sessionID != "app")
